@@ -1,0 +1,13 @@
+build/
+cmake-build-*/
+DerivedData/
+*.ipa
+*.app/
+*.dSYM/
+*.mobileprovision
+*.p12
+*.p8
+*.cer
+*.key
+.env
+*.log

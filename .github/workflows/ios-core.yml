@@ -1,0 +1,45 @@
+name: iOS Core Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios-arm64:
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/ios \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build/ios --config Release --parallel
+
+      - name: Verify
+        run: |
+          test -f build/ios/libarizona_neo_core.a
+          file build/ios/libarizona_neo_core.a
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arizona-neo-ios-core-arm64
+          path: build/ios/libarizona_neo_core.a
