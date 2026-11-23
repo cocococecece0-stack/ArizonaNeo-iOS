@@ -31,6 +31,7 @@ jobs:
       - name: Build LuaJIT (iOS ARM64, JIT disabled, FFI enabled)
         run: |
           cd luajit-src/src
+          export MACOSX_DEPLOYMENT_TARGET=11.0
           make clean
           SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
           TARGET_CC="clang -arch arm64 -isysroot ${SDK_PATH} -miphoneos-version-min=15.0"
