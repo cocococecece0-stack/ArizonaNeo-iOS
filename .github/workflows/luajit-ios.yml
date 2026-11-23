@@ -33,6 +33,12 @@ jobs:
           cd luajit-src/src
           export MACOSX_DEPLOYMENT_TARGET=11.0
           make clean
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          if [[ -z "${SDK_PATH}" || ! -d "${SDK_PATH}" ]]; then
+            echo "ERROR: iPhoneOS SDK not found" >&2
+            exit 1
+          fi
+          echo "SDK_PATH=${SDK_PATH}"
           HOST_CC="clang"
           TARGET_CC="clang -arch arm64 -isysroot ${SDK_PATH} -miphoneos-version-min=15.0"
           export MACOSX_DEPLOYMENT_TARGET=11.0
