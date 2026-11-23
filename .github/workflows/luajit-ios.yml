@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   build-luajit-ios-arm64:
-    runs-on: macos-13
+    runs-on: macos-15
 
     env:
       LUAJIT_COMMIT: "96f7b297326e9fd454b7186c6858b2773f94a0dc"
