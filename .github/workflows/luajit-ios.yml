@@ -33,7 +33,7 @@ jobs:
           cd luajit-src/src
           export MACOSX_DEPLOYMENT_TARGET=11.0
           make clean
-          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          HOST_CC="clang"
           TARGET_CC="clang -arch arm64 -isysroot ${SDK_PATH} -miphoneos-version-min=15.0"
           export MACOSX_DEPLOYMENT_TARGET=11.0
           make -j"$(sysctl -n hw.ncpu)" \
@@ -41,7 +41,10 @@ jobs:
             TARGET_LJARCH=arm64 \
             BUILDMODE=static \
             XCFLAGS="-DLUAJIT_DISABLE_JIT" \
-            TARGET_CC="${TARGET_CC}"
+            CC="${TARGET_CC}" \
+            HOST_CC="${HOST_CC}" \
+            TARGET_CC="${TARGET_CC}" \
+            libluajit.a
 
       - name: Verify
         run: |
