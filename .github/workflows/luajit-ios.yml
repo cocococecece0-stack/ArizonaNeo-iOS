@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   build-luajit-ios-arm64:
-    runs-on: macos-15
+    runs-on: macos-15-intel
 
     env:
       LUAJIT_COMMIT: "96f7b297326e9fd454b7186c6858b2773f94a0dc"
@@ -16,8 +16,10 @@ jobs:
     steps:
       - name: Show toolchain
         run: |
+          echo "Runner arch: $(uname -m)"
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
+          echo "SDK: $(xcrun --sdk iphoneos --show-sdk-path)"
           clang --version | head -1
 
       - name: Clone LuaJIT
