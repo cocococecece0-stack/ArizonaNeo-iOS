@@ -1,0 +1,61 @@
+name: LuaJIT iOS ARM64 Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-luajit-ios-arm64:
+    runs-on: macos-15
+
+    env:
+      LUAJIT_COMMIT: "96f7b297326e9fd454b7186c6858b2773f94a0dc"
+
+    steps:
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          clang --version | head -1
+
+      - name: Clone LuaJIT
+        run: |
+          git clone https://github.com/LuaJIT/LuaJIT.git luajit-src
+          cd luajit-src
+          git checkout ${{ env.LUAJIT_COMMIT }}
+
+      - name: Build LuaJIT (iOS ARM64, JIT disabled, FFI enabled)
+        run: |
+          cd luajit-src/src
+          make clean
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          TARGET_CC="clang -arch arm64 -isysroot ${SDK_PATH} -miphoneos-version-min=15.0"
+          make -j"$(sysctl -n hw.ncpu)" \
+            TARGET_SYS=iOS \
+            TARGET_LJARCH=arm64 \
+            BUILDMODE=static \
+            XCFLAGS="-DLUAJIT_DISABLE_JIT" \
+            TARGET_CC="${TARGET_CC}"
+
+      - name: Verify
+        run: |
+          test -f luajit-src/src/libluajit.a
+          echo "=== lipo ==="
+          lipo -info luajit-src/src/libluajit.a
+          echo "=== file ==="
+          file luajit-src/src/libluajit.a
+          echo "=== otool ==="
+          otool -hv luajit-src/src/libluajit.a | head
+          echo "=== size ==="
+          ls -lh luajit-src/src/libluajit.a
+          echo "=== symbols ==="
+          nm luajit-src/src/libluajit.a | grep -E " T (luaL_newstate|lua_pcall|lua_close)" | head
+          echo "=== macro check ==="
+          grep -n "LJ_OS_NOJIT\|LJ_HASFFI\|LJ_HASJIT" luajit-src/src/lj_arch.h | head
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: luajit-ios-arm64
+          path: luajit-src/src/libluajit.a
