@@ -224,6 +224,7 @@ print("FFI OK")
 
 Подготовлены `scripts/build_luajit_ios.sh` и `.github/workflows/luajit-ios.yml`.
 Документ: `docs/LUAJIT_IOS_BUILD.md`.
-Реальная iOS-сборка не выполнена (нет toolchain); Linux-проверка FFI пройдена.
+Реальная iOS-сборка выполнена через GitHub Actions (run 45253149431): успех, `libluajit.a` 497K, Mach-O ARM64.
+Linux-проверка FFI пройдена. iOS runtime FFI не проверялся.
 
 `docs/PORTING_PLAN.md` обновлён: Stage 6.0 — исследование Lua Runtime (LuaJIT 2.1 feasibility), следующий этап — интеграция (Stage 7).

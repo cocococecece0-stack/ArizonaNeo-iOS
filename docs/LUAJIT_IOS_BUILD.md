@@ -35,14 +35,17 @@ See `scripts/build_luajit_ios.sh` and `.github/workflows/luajit-ios.yml`.
 - JIT disabled build: `jit.status()` → "no jit".
 - FFI test: **passed** (struct, fields, C call `puts`).
 
-### iOS ARM64 compile
-- **Not performed** (no Xcode/iOS SDK in local environment). Workflow prepared for `macos-15`.
-
-### iOS ARM64 link
-- **Not performed**.
-
-### iOS FFI runtime
-- **Not performed**.
+### iOS ARM64 (performed via GitHub Actions)
+- Run ID: `45253149431` (https://github.com/cocococecece0-stack/ArizonaNeo-iOS/actions/runs/45253149431)
+- Runner: macOS 15 Intel (x86_64) cross-compiling to iOS arm64.
+- Compile: **success**.
+- Link (static archive): **success**.
+- `file`: Mach-O ARM64 static archive.
+- `llvm-otool`: cputype ARM64.
+- Size: 497K.
+- Symbols: `_luaL_newstate`, `_lua_pcall`, `_lua_close` present.
+- FFI: enabled via source macros (LJ_HASFFI=1); no iOS runtime FFI test performed.
+- Android ELF: none.
 
 ## 7. Architecture of resulting library
 - Expected: Mach-O static archive `libluajit.a`, arm64 slice.
