@@ -34,6 +34,7 @@ jobs:
           make clean
           SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
           TARGET_CC="clang -arch arm64 -isysroot ${SDK_PATH} -miphoneos-version-min=15.0"
+          export MACOSX_DEPLOYMENT_TARGET=11.0
           make -j"$(sysctl -n hw.ncpu)" \
             TARGET_SYS=iOS \
             TARGET_LJARCH=arm64 \

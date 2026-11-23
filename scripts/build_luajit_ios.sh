@@ -54,6 +54,7 @@ make clean >/dev/null 2>&1 || true
 
 TARGET_CC="clang -arch ${ARCH} -isysroot ${SDK_PATH} -miphoneos-version-min=${MIN_IOS}"
 
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-11.0}"
 make -j"$(sysctl -n hw.ncpu)" \
   CROSS= \
   TARGET_SYS=iOS \
