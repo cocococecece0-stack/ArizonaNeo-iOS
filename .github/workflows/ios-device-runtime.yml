@@ -16,9 +16,6 @@ env:
   LUAJIT_ARTIFACT_ID: '14855513382'
   LUAJIT_ZIP_SHA: '58ff22c6ebe8019ff0f11679e81df93c4a1052605daefdb9fae935d5d724f595'
   LUAJIT_LIB_SHA: '6b3c087831456891cf572f56aa9127b9539507b32c1552582eaf87c6deb31343'
-  CORE_ARTIFACT_ID: '14900956673'
-  CORE_ZIP_SHA: '46f62ed4b08a1b953f3f1234055a9e1f6cc79b5031e76b6b430585a6fa0ca3f9'
-  CORE_LIB_SHA: 'b33ead8a4ed82526eb4f56be4976d4e9533d4c39f114dde47a00ecd69784df74'
 
 jobs:
   build-device-test-host:
@@ -54,23 +51,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p ci/luajit ci/core
+          mkdir -p ci/luajit
+          # Only LuaJIT is a pinned external dependency here. The Core archive
+          # MUST be rebuilt from the current checkout (see next step); using an
+          # older Core artifact causes missing A-E symbols at link time.
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${LUAJIT_ARTIFACT_ID}/zip" \
             > ci/luajit/artifact.zip
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${CORE_ARTIFACT_ID}/zip" \
-            > ci/core/artifact.zip
           echo "$(shasum -a 256 ci/luajit/artifact.zip | awk '{print $1}')  luajit zip" > ci/artifact-sha.txt
-          echo "$(shasum -a 256 ci/core/artifact.zip | awk '{print $1}')  core zip" >> ci/artifact-sha.txt
           grep -q "^${LUAJIT_ZIP_SHA}  luajit zip$" ci/artifact-sha.txt
-          grep -q "^${CORE_ZIP_SHA}  core zip$" ci/artifact-sha.txt
           unzip -o -q ci/luajit/artifact.zip -d ci/luajit
-          unzip -o -q ci/core/artifact.zip -d ci/core
           test -f ci/luajit/libluajit.a
-          test -f ci/core/build-ios/libarizona_neo_core.a
           echo "$(shasum -a 256 ci/luajit/libluajit.a | awk '{print $1}')  libluajit.a" >> ci/artifact-sha.txt
-          echo "$(shasum -a 256 ci/core/build-ios/libarizona_neo_core.a | awk '{print $1}')  libarizona_neo_core.a" >> ci/artifact-sha.txt
           grep -q "^${LUAJIT_LIB_SHA}  libluajit.a$" ci/artifact-sha.txt
-          grep -q "^${CORE_LIB_SHA}  libarizona_neo_core.a$" ci/artifact-sha.txt
           cat ci/artifact-sha.txt
 
       - name: Prepare LuaJIT headers from pinned commit
@@ -93,7 +85,48 @@ jobs:
           grep -Fq "$EXPECTED_SYM" "$RUNNER_TEMP/luajit-symbols.txt"
           echo "LUAJIT_INCLUDE_DIR=$GITHUB_WORKSPACE/ci/luajit-src/src" >> "$GITHUB_ENV"
           echo "LUAJIT_LIB=$GITHUB_WORKSPACE/ci/luajit/libluajit.a" >> "$GITHUB_ENV"
-          echo "CORE_LIB=$GITHUB_WORKSPACE/ci/core/build-ios/libarizona_neo_core.a" >> "$GITHUB_ENV"
+
+      - name: Build Core from current checkout (iOS arm64, LuaJIT ON)
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          echo "$SOURCE_SHA" > ci/core-source-sha.txt
+          [[ "$SOURCE_SHA" == "$GITHUB_SHA" ]] || {
+            echo "ERROR: checkout SHA $SOURCE_SHA differs from GITHUB_SHA $GITHUB_SHA" >&2
+            exit 1
+          }
+
+          # Same target as the device app: arm64-apple-ios15.0, iphoneos SDK.
+          # LuaJIT is the pinned platform-2 archive; headers come from the
+          # pinned LuaJIT commit. No stale Core archive is used as input.
+          cmake -S . -B ci/build-core \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DARIZONA_NEO_WITH_LUAJIT=ON \
+            -DLUAJIT_INCLUDE_DIR="$LUAJIT_INCLUDE_DIR" \
+            -DLUAJIT_LIBRARY="$LUAJIT_LIB" 2>&1 | tee ci/core-configure.log
+          cmake --build ci/build-core --target arizona_neo_core --parallel 2 2>&1 | tee ci/core-build.log
+
+          CORE_LIB="$GITHUB_WORKSPACE/ci/build-core/libarizona_neo_core.a"
+          test -f "$CORE_LIB"
+          file "$CORE_LIB" | tee ci/core-binary-info.txt
+          lipo -info "$CORE_LIB" | tee -a ci/core-binary-info.txt
+          mkdir -p ci/core-verify
+          (cd ci/core-verify && ar x "$CORE_LIB" lua_jit_host.cpp.o)
+          otool -l ci/core-verify/lua_jit_host.cpp.o \
+            | grep -A4 'cmd LC_BUILD_VERSION' > ci/core-build-version.txt
+          cat ci/core-build-version.txt
+          grep -q 'platform 2' ci/core-build-version.txt    # IOS device, not simulator (7)
+          grep -q 'minos 15.0' ci/core-build-version.txt
+          nm -g "$CORE_LIB" > ci/core-symbols.txt             # full output first, no SIGPIPE
+          grep -Fq 'LuaJITHost' ci/core-symbols.txt
+          grep -Fq 'execute_detailed' ci/core-symbols.txt
+          grep -Fq 'register_function' ci/core-symbols.txt
+          echo "CORE_LIB=$CORE_LIB" >> "$GITHUB_ENV"
+          echo "FRESH_CORE_BUILD_OK from $SOURCE_SHA"
 
       - name: Build unsigned iOS device test app
         run: |
@@ -130,8 +163,10 @@ jobs:
           grep -q 'platform 2' ci/device-build-version.txt   # IOS device, not simulator (7)
           grep -q 'minos 15.0' ci/device-build-version.txt
           nm -g "$DEVICE_BIN" > ci/device-symbols.txt
-          grep -q 'LuaJITHost' ci/device-symbols.txt
-          grep -q 'luaL_newstate' ci/device-symbols.txt
+          grep -Fq 'LuaJITHost' ci/device-symbols.txt
+          grep -Fq 'luaL_newstate' ci/device-symbols.txt
+          grep -Fq 'execute_detailed' ci/device-symbols.txt
+          grep -Fq 'register_function' ci/device-symbols.txt
           echo "DEVICE_BINARY_OK"
 
       - name: Package unsigned IPA
@@ -145,7 +180,8 @@ jobs:
           shasum -a 256 \
             ci/ArizonaNeoDeviceTest-unsigned.ipa \
             ci/luajit/libluajit.a \
-            ci/core/build-ios/libarizona_neo_core.a \
+            "$CORE_LIB" \
+            ci/core-source-sha.txt \
             ci/toolchain-report.txt \
             ci/artifact-sha.txt \
             ci/device-binary-info.txt \
@@ -166,6 +202,12 @@ jobs:
             ci/sha256-manifest.txt
             ci/toolchain-report.txt
             ci/artifact-sha.txt
+            ci/core-source-sha.txt
+            ci/core-configure.log
+            ci/core-build.log
+            ci/core-binary-info.txt
+            ci/core-build-version.txt
+            ci/core-symbols.txt
             ci/xcodebuild.log
             ci/package.log
             ci/device-binary-info.txt
