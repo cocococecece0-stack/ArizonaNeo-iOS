@@ -1,5 +1,7 @@
 #import "ReportGenerator.h"
 
+#import <UIKit/UIKit.h>
+
 #include <sys/utsname.h>
 
 static NSString * const ANDLuaJITCommit = @"96f7b297326e9fd454b7186c6858b2773f94a0dc";
