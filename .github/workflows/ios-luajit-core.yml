@@ -1,0 +1,327 @@
+name: iOS ARM64 Core + LuaJIT Integration Build
+
+# Manual-only: compiles ArizonaNeo Core with the pinned LuaJIT 2.1 iOS ARM64
+# artifact and performs a REAL static link under the Apple toolchain.
+# This does NOT run Lua code on an iOS device/simulator.
+
+on:
+  workflow_dispatch:
+    inputs:
+      luajit_run_id:
+        description: 'GitHub Actions run that produced the LuaJIT artifact'
+        required: true
+        default: '45253149431'
+        type: string
+      luajit_artifact_id:
+        description: 'LuaJIT iOS ARM64 artifact ID'
+        required: true
+        default: '14855513382'
+        type: string
+      expected_lib_sha256:
+        description: 'Full SHA256 of libluajit.a from the pinned artifact'
+        required: true
+        default: '6b3c087831456891cf572f56aa9127b9539507b32c1552582eaf87c6deb31343'
+        type: string
+      expected_zip_sha256:
+        description: 'Full SHA256 of the artifact ZIP (API digest)'
+        required: true
+        default: '58ff22c6ebe8019ff0f11679e81df93c4a1052605daefdb9fae935d5d724f595'
+        type: string
+      rebuild_if_artifact_unavailable:
+        description: 'Fallback: rebuild LuaJIT from pinned commit via scripts/build_luajit_ios.sh'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  LUAJIT_COMMIT: '96f7b297326e9fd454b7186c6858b2773f94a0dc'
+  IOS_DEPLOYMENT_TARGET: '15.0'
+
+jobs:
+  build-ios-luajit-core:
+    name: iOS arm64 Core + LuaJIT (compile + static link)
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Record Apple toolchain
+        run: |
+          echo "Runner arch: $(uname -m)"
+          sw_vers
+          xcodebuild -version
+          echo "SDK version: $(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "SDK path: $(xcrun --sdk iphoneos --show-sdk-path)"
+          clang --version | head -1
+          cmake --version | head -1
+          gh --version | head -1
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          if [[ -z "${SDK_PATH}" || ! -d "${SDK_PATH}" ]]; then
+            echo "ERROR: iPhoneOS SDK not found" >&2
+            exit 1
+          fi
+          {
+            echo "## Apple toolchain"
+            echo "- macOS: $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
+            echo "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
+            echo "- iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+            echo "- SDK path: ${SDK_PATH}"
+            echo "- Clang: $(clang --version | head -1)"
+            echo "- CMake: $(cmake --version | head -1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prepare work directories
+        run: |
+          mkdir -p ci/artifact ci/verify ci/luajit-src ci/build-ios ci/link-test ci/build-link-test
+
+      - name: Fetch LuaJIT headers from pinned commit
+        run: |
+          git clone --quiet https://github.com/LuaJIT/LuaJIT.git ci/luajit-src
+          git -C ci/luajit-src checkout --quiet "$LUAJIT_COMMIT"
+          ACTUAL="$(git -C ci/luajit-src rev-parse HEAD)"
+          if [[ "$ACTUAL" != "$LUAJIT_COMMIT" ]]; then
+            echo "ERROR: LuaJIT commit mismatch: $ACTUAL" >&2
+            exit 1
+          fi
+          for h in lua.h luaconf.h lauxlib.h lualib.h luajit.h; do
+            test -f "ci/luajit-src/src/$h" || { echo "ERROR: missing header $h" >&2; exit 1; }
+          done
+          grep -q 'LUAJIT_VERSION[[:space:]]*"LuaJIT 2\.1' ci/luajit-src/src/luajit.h
+          echo "LUAJIT_INCLUDE_DIR=$GITHUB_WORKSPACE/ci/luajit-src/src" >> "$GITHUB_ENV"
+          echo "Commit verified: $ACTUAL"
+
+      - name: Download pinned LuaJIT artifact (or documented fallback)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ inputs.luajit_artifact_id }}
+          RUN_ID: ${{ inputs.luajit_run_id }}
+          EXPECTED_ZIP_SHA: ${{ inputs.expected_zip_sha256 }}
+          EXPECTED_LIB_SHA: ${{ inputs.expected_lib_sha256 }}
+          REBUILD: ${{ inputs.rebuild_if_artifact_unavailable }}
+        run: |
+          set +e
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > ci/luajit-artifact.zip
+          GH_STATUS=$?
+          set -e
+          USING_FALLBACK=0
+          if [[ $GH_STATUS -ne 0 ]]; then
+            echo "ERROR: artifact ${ARTIFACT_ID} from run ${RUN_ID} is unavailable (expired/deleted or API error)." >&2
+            if [[ "$REBUILD" != "true" ]]; then
+              echo "Fix: re-run with rebuild_if_artifact_unavailable=true, or rebuild/upload via scripts/build_luajit_ios.sh and update the artifact ID/hash inputs." >&2
+              exit 1
+            fi
+            echo "Fallback: rebuilding from pinned commit with scripts/build_luajit_ios.sh"
+            bash scripts/build_luajit_ios.sh
+            cp .luajit-ios-build/out-ios-arm64/libluajit.a ci/libluajit.a
+            USING_FALLBACK=1
+          else
+            ACTUAL_ZIP_SHA="$(shasum -a 256 ci/luajit-artifact.zip | awk '{print $1}')"
+            if [[ "$ACTUAL_ZIP_SHA" != "$EXPECTED_ZIP_SHA" ]]; then
+              echo "ERROR: artifact ZIP sha256 mismatch: $ACTUAL_ZIP_SHA" >&2
+              exit 1
+            fi
+            unzip -o -q ci/luajit-artifact.zip -d ci/artifact
+            test -f ci/artifact/libluajit.a || { echo "ERROR: archive has no libluajit.a" >&2; exit 1; }
+            cp ci/artifact/libluajit.a ci/libluajit.a
+            ACTUAL_LIB_SHA="$(shasum -a 256 ci/libluajit.a | awk '{print $1}')"
+            if [[ "$ACTUAL_LIB_SHA" != "$EXPECTED_LIB_SHA" ]]; then
+              echo "ERROR: libluajit.a sha256 mismatch: $ACTUAL_LIB_SHA" >&2
+              exit 1
+            fi
+            echo "Verified libluajit.a SHA256: $ACTUAL_LIB_SHA"
+          fi
+          echo "USING_FALLBACK=$USING_FALLBACK" >> "$GITHUB_ENV"
+
+      - name: Verify LuaJIT iOS artifact (fail closed)
+        run: |
+          set -euo pipefail
+          LIB="$GITHUB_WORKSPACE/ci/libluajit.a"
+          file "$LIB"
+          lipo -info "$LIB" > ci/lipo.txt
+          cat ci/lipo.txt
+          grep -q 'architecture: arm64' ci/lipo.txt
+          if file "$LIB" | grep -qi 'ELF'; then
+            echo "ERROR: Linux ELF archive supplied for iOS" >&2
+            exit 1
+          fi
+          # Every member must be Mach-O, never ELF.
+          for member in $(ar t "$LIB"); do
+            MEMBER_TYPE="$(ar p "$LIB" "$member" | file - || true)"
+            if echo "$MEMBER_TYPE" | grep -qi 'ELF'; then
+              echo "ERROR: ELF member in iOS archive: $member" >&2
+              exit 1
+            fi
+          done
+          # iOS platform and 15.0 minos from the Mach-O load command.
+          (cd ci/verify && ar x "$LIB" lj_vm.o)
+          otool -hv ci/verify/lj_vm.o > ci/otool-hv.txt
+          grep -q 'ARM64' ci/otool-hv.txt
+          otool -l ci/verify/lj_vm.o > ci/otool-l.txt
+          grep -A4 'cmd LC_BUILD_VERSION' ci/otool-l.txt > ci/build-version.txt
+          cat ci/build-version.txt
+          grep -q 'platform 2' ci/build-version.txt   # PLATFORM_IOS, not MACOS (1)
+          grep -q 'minos 15.0' ci/build-version.txt
+          # Lua 5.1 C API, FFI and version symbol must be defined.
+          nm -g "$LIB" > ci/luajit-nm.txt
+          grep -E ' T _?(luaL_newstate|lua_pcall|lua_close|luaopen_ffi|luaJIT_version_2_1_1795119671)' ci/luajit-nm.txt
+          # Interpreter-only: no JIT backend symbols.
+          if grep -qE ' T _?lj_(trace|record|ir|jit)_' ci/luajit-nm.txt; then
+            echo "ERROR: JIT symbols present in iOS artifact" >&2
+            exit 1
+          fi
+          grep -q 'LJ_OS_NOJIT' ci/luajit-src/src/lj_arch.h
+          echo "ARTIFACT_OK: Mach-O arm64, platform IOS, minos 15.0, JIT off, FFI on"
+
+      - name: Configure and build ArizonaNeo Core for iOS (LuaJIT ON)
+        run: |
+          set -euo pipefail
+          cmake -S . -B ci/build-ios \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DARIZONA_NEO_WITH_LUAJIT=ON \
+            -DLUAJIT_INCLUDE_DIR="$LUAJIT_INCLUDE_DIR" \
+            -DLUAJIT_LIBRARY="$GITHUB_WORKSPACE/ci/libluajit.a" 2>&1 | tee ci/ios-configure.log
+          cmake --build ci/build-ios --parallel 2 2>&1 | tee ci/ios-build.log
+          test -f ci/build-ios/libarizona_neo_core.a
+          # LuaJITHost must really be compiled into the Core archive.
+          nm -g ci/build-ios/libarizona_neo_core.a > ci/core-nm.txt
+          grep -q 'LuaJITHost' ci/core-nm.txt
+          echo "CORE_BUILD_OK"
+
+      - name: Static link test (real Apple linker, LuaJITHost::initialize/execute)
+        run: |
+          set -euo pipefail
+          cat > ci/link-test/main.cpp <<'CPP'
+          #include "arizona_neo/runtime/lua_jit_host.hpp"
+
+          int main() {
+              arizona_neo::runtime::LuaJITHost host;
+              if (!host.initialize()) return 1;
+              if (!host.execute("ios_link_test_value = 2 + 2", "ios_link_test")) return 2;
+              if (host.get_global_number("ios_link_test_value") != 4.0) return 3;
+              host.shutdown();
+              return 0;
+          }
+          CPP
+          cat > ci/link-test/CMakeLists.txt <<'CMAKE'
+          cmake_minimum_required(VERSION 3.24)
+          project(ios_luajit_link_test LANGUAGES CXX)
+          set(CMAKE_CXX_STANDARD 17)
+          set(CMAKE_CXX_STANDARD_REQUIRED ON)
+          add_executable(ios_luajit_link_test main.cpp)
+          target_compile_definitions(ios_luajit_link_test PRIVATE ARIZONA_NEO_WITH_LUAJIT=1)
+          target_include_directories(ios_luajit_link_test PRIVATE
+              "${PROJECT_SOURCE_DIR}/../../include"
+              "${LUAJIT_INCLUDE_DIR}"
+          )
+          target_link_libraries(ios_luajit_link_test PRIVATE "${CORE_LIB}" "${LUAJIT_LIB}" m)
+          CMAKE
+          cmake -S ci/link-test -B ci/build-link-test \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLUAJIT_INCLUDE_DIR="$LUAJIT_INCLUDE_DIR" \
+            -DCORE_LIB="$GITHUB_WORKSPACE/ci/build-ios/libarizona_neo_core.a" \
+            -DLUAJIT_LIB="$GITHUB_WORKSPACE/ci/libluajit.a" 2>&1 | tee ci/link-configure.log
+          cmake --build ci/build-link-test --parallel 2 2>&1 | tee ci/link-build.log
+          test -f ci/build-link-test/ios_luajit_link_test
+          # The Apple linker must have resolved all LuaJIT symbols.
+          nm -g ci/build-link-test/ios_luajit_link_test | grep ' U ' > ci/link-test-undefined.txt || true
+          if grep -qE ' U _?(lj_|lua)' ci/link-test-undefined.txt; then
+            echo "ERROR: unresolved LuaJIT symbol in link test" >&2
+            cat ci/link-test-undefined.txt >&2
+            exit 1
+          fi
+          echo "STATIC_LINK_OK (compile-only: executable NOT launched on iOS)"
+
+      - name: Inspect resulting binaries
+        run: |
+          set -euo pipefail
+          {
+            for f in \
+              "$GITHUB_WORKSPACE/ci/libluajit.a" \
+              "$GITHUB_WORKSPACE/ci/build-ios/libarizona_neo_core.a" \
+              "$GITHUB_WORKSPACE/ci/build-ios/tests/lua_runtime_test" \
+              "$GITHUB_WORKSPACE/ci/build-link-test/ios_luajit_link_test"; do
+              [ -e "$f" ] || continue
+              echo "===== $f ====="
+              file "$f"
+              lipo -info "$f"
+              otool -hv "$f" | head -20
+              otool -l "$f" | grep -A4 'cmd LC_BUILD_VERSION' | head -12 || true
+              nm -g "$f" | grep -E ' T _?(luaL_newstate|lua_pcall|lua_close|luaopen_ffi|luaJIT_version)' | head -8 || true
+              echo "--- undefined ---"
+              nm -g "$f" | grep ' U ' | head -30 || true
+            done
+            echo "===== forbidden dependency scan ====="
+            if grep -Ei 'ELF|__errno_location|__android_|JNIEnv|Java_|libdl\.so|/lib/ld-linux' ci/*.log ci/link-test-undefined.txt ci/lipo.txt ci/build-version.txt; then
+              echo "ERROR: Linux/Android dependency found" >&2
+              exit 1
+            fi
+            echo "NONE: no ELF / glibc / Bionic / JNI / libdl.so references"
+          } > ci/binary-inspection-report.txt 2>&1
+          cat ci/binary-inspection-report.txt
+
+      - name: SHA256 manifest and artifact summary
+        run: |
+          set -euo pipefail
+          {
+            shasum -a 256 \
+              ci/luajit-artifact.zip \
+              ci/libluajit.a \
+              ci/build-ios/libarizona_neo_core.a \
+              ci/build-ios/tests/lua_runtime_test \
+              ci/build-link-test/ios_luajit_link_test \
+              ci/luajit-src/src/lua.h \
+              ci/luajit-src/src/luaconf.h \
+              ci/luajit-src/src/lauxlib.h \
+              ci/luajit-src/src/lualib.h \
+              ci/luajit-src/src/luajit.h
+          } > ci/sha256-manifest.txt
+          cat ci/sha256-manifest.txt
+          {
+            echo "## iOS ARM64 Core + LuaJIT integration"
+            echo "- LuaJIT commit: $LUAJIT_COMMIT"
+            echo "- Artifact run: ${{ inputs.luajit_run_id }}, id: ${{ inputs.luajit_artifact_id }}"
+            echo "- iOS target: arm64-apple-ios$IOS_DEPLOYMENT_TARGET (CMAKE_SYSTEM_NAME=iOS)"
+            echo "- Core build: PASS; static link test: PASS (compile-only)"
+            echo "- iOS device/simulator runtime: NOT TESTED"
+            echo "- Fallback rebuild used: $USING_FALLBACK"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-luajit-core-integration
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            ci/build-ios/libarizona_neo_core.a
+            ci/libluajit.a
+            ci/luajit-src/src/lua.h
+            ci/luajit-src/src/luaconf.h
+            ci/luajit-src/src/lauxlib.h
+            ci/luajit-src/src/lualib.h
+            ci/luajit-src/src/luajit.h
+            ci/build-ios/tests/lua_runtime_test
+            ci/build-link-test/ios_luajit_link_test
+            ci/link-test-undefined.txt
+            ci/binary-inspection-report.txt
+            ci/sha256-manifest.txt
+            ci/ios-configure.log
+            ci/ios-build.log
+            ci/link-configure.log
+            ci/link-build.log
+            ci/build-version.txt
+            ci/lipo.txt

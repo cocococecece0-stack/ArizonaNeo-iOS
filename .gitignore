@@ -11,3 +11,5 @@ DerivedData/
 *.key
 .env
 *.log
+.luajit-ios-build/
+/ci/

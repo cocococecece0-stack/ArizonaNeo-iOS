@@ -185,3 +185,12 @@ clang++ -std=c++20 -I include -c src/core/lua_host.cpp -o /tmp/opencode/lua_host
 - Выбрать и легально интегрировать Lua runtime для iOS ARM64.
 - Настроить локальную воспроизводимую сборку под iOS (через macOS/CI).
 - Добавить файл лицензии и политику проверки лицензий зависимостей.
+
+## 14. Stage 6.2.6 — GitHub Actions iOS ARM64 Core + LuaJIT (подготовка, не запущено)
+
+Полный отчёт: `docs/STAGE_6_2_6_GITHUB_IOS_CORE_BUILD.md`.
+
+- Создан отдельный `.github/workflows/ios-luajit-core.yml` (`macos-15`, `workflow_dispatch`, `contents: read` + `actions: read`): загрузка закреплённого artifact через `gh api` с проверкой полного ZIP/lib SHA256, checkout LuaJIT нужного commit для headers, fail-closed проверка Mach-O ARM64 / platform IOS / minos 15.0 / JIT off / FFI on, CMake configure+build Core с `ARIZONA_NEO_WITH_LUAJIT=ON`, настоящий static link test с вызовами `LuaJITHost::initialize()/execute()`, инспекция бинарников, SHA256-манифест и upload-artifact (retention 30 дней).
+- Полный SHA256 входного `libluajit.a`, полученный заново из run 45253149431 / artifact 14855513382: `6b3c087831456891cf572f56aa9127b9539507b32c1552582eaf87c6deb31343`.
+- Workflow **не запущен**: `gh workflow run ios-luajit-core.yml` → HTTP 404 (файл ещё не на remote; push запрещён). iOS compile/link Core+LuaJIT и runtime на устройстве не выполнены; этап не завершён, к Stage 6.3 не переходим.
+- Локально проверено: `git diff --check` (0), YAML parse, `bash -n` всех 9 run-блоков и обоих скриптов, контрольный CMake configure. Commit/push не выполнялись.

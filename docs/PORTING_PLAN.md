@@ -38,3 +38,6 @@ A successful static-library build is not a working game loader.
 MonetLoader is used only as an architectural reference, not a replacement for NeoMLoader.
 Research materials and binaries are not stored in Git.
 Lua Runtime is not implemented yet.
+
+## Stage 6.2.6
+GitHub Actions iOS ARM64 Core + LuaJIT integration build (prepared, NOT executed). New `.github/workflows/ios-luajit-core.yml` on `macos-15` with `workflow_dispatch`: pinned artifact SHA256 verification, header commit check, fail-closed Mach-O/iOS/ARM64/JIT/FFI checks, Core build with `ARIZONA_NEO_WITH_LUAJIT=ON`, real static link test using `LuaJITHost::initialize/execute`, binary inspection, SHA256 manifest, 30-day artifact retention. Full input SHA256: `6b3c087831456891cf572f56aa9127b9539507b32c1552582eaf87c6deb31343`. Blocker: dispatch returns HTTP 404 until the workflow is pushed (no push permission in this stage); iOS compile/link and device runtime remain unverified. Document: `docs/STAGE_6_2_6_GITHUB_IOS_CORE_BUILD.md`.
