@@ -27,3 +27,13 @@ add_executable(script_manager_test script_manager_test.cpp)
 target_link_libraries(script_manager_test PRIVATE arizona_neo_core)
 target_compile_features(script_manager_test PRIVATE cxx_std_17)
 add_test(NAME script_manager_test COMMAND script_manager_test)
+
+# LuaJIT runtime test is only registered when the LuaJIT integration is enabled.
+# Without the option the test source self-skips, but not building it at all keeps
+# the LuaJIT OFF configuration free of any LuaJIT dependency.
+if(ARIZONA_NEO_WITH_LUAJIT)
+    add_executable(lua_runtime_test lua_runtime_test.cpp)
+    target_link_libraries(lua_runtime_test PRIVATE arizona_neo_core)
+    target_compile_features(lua_runtime_test PRIVATE cxx_std_17)
+    add_test(NAME lua_runtime_test COMMAND lua_runtime_test)
+endif()
