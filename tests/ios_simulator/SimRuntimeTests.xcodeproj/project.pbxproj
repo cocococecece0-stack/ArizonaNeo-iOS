@@ -1,0 +1,214 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00000000000000000000007 /* SimRuntimeTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* SimRuntimeTests.mm */; };
+		A00000000000000000000008 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000006 /* XCTest.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A00000000000000000000004 /* SimRuntimeTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SimRuntimeTests.mm; sourceTree = "<group>"; };
+		A00000000000000000000005 /* SimRuntimeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.xctest; includeInIndex = 0; path = SimRuntimeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000006 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A0000000000000000000000A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000008 /* XCTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A00000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000004 /* SimRuntimeTests.mm */,
+				A00000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000005 /* SimRuntimeTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A0000000000000000000000B /* SimRuntimeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A0000000000000000000000D /* Build configuration list for PBXNativeTarget "SimRuntimeTests" */;
+			buildPhases = (
+				A00000000000000000000009 /* Sources */,
+				A0000000000000000000000A /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SimRuntimeTests;
+			productName = SimRuntimeTests;
+			productReference = A00000000000000000000005 /* SimRuntimeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A0000000000000000000000B = {
+						CreatedOnToolsVersion = 16.4;
+					};
+				};
+			};
+			buildConfigurationList = A0000000000000000000000C /* Build configuration list for PBXProject "SimRuntimeTests" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A00000000000000000000002;
+			productRefGroup = A00000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A0000000000000000000000B /* SimRuntimeTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A00000000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000007 /* SimRuntimeTests.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A0000000000000000000000E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGNING_ALLOWED = NO;
+				ENABLE_BITCODE = NO;
+				ENABLE_TESTABILITY = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				ONLY_ACTIVE_ARCH = NO;
+				SDKROOT = iphonesimulator;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A0000000000000000000000F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGNING_ALLOWED = NO;
+				ENABLE_BITCODE = NO;
+				ENABLE_TESTABILITY = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				ONLY_ACTIVE_ARCH = NO;
+				SDKROOT = iphonesimulator;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A00000000000000000000010 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				FRAMEWORK_SEARCH_PATHS = "$(SDKROOT)/Developer/Library/Frameworks";
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../include",
+					"$(LUAJIT_INCLUDE_DIR)",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(CORE_LIB)",
+					"$(LUAJIT_LIB)",
+					"-lm",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.arizonaneo.SimRuntimeTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TEST_HOST = "";
+			};
+			name = Debug;
+		};
+		A00000000000000000000011 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				FRAMEWORK_SEARCH_PATHS = "$(SDKROOT)/Developer/Library/Frameworks";
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../include",
+					"$(LUAJIT_INCLUDE_DIR)",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(CORE_LIB)",
+					"$(LUAJIT_LIB)",
+					"-lm",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.arizonaneo.SimRuntimeTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TEST_HOST = "";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A0000000000000000000000C /* Build configuration list for PBXProject "SimRuntimeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A0000000000000000000000E /* Debug */,
+				A0000000000000000000000F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A0000000000000000000000D /* Build configuration list for PBXNativeTarget "SimRuntimeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000010 /* Debug */,
+				A00000000000000000000011 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A00000000000000000000001 /* Project object */;
+}
