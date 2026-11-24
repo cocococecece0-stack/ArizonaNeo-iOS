@@ -91,15 +91,17 @@ jobs:
           # A freshly booted iOS 26 Simulator may still be finishing data
           # migration, so first perform a lightweight spawn readiness probe.
           READY=0
-          for attempt in 1 2 3; do
-            if xcrun simctl spawn "$SIM_UDID" /bin/echo simulator-ready 2>/dev/null | grep -q 'simulator-ready'; then
+          for attempt in $(seq 1 12); do
+            PROBE="$(xcrun simctl spawn "$SIM_UDID" /bin/echo simulator-ready 2>&1 || true)"
+            if echo "$PROBE" | grep -q 'simulator-ready'; then
               READY=1
               break
             fi
+            echo "spawn readiness attempt $attempt/12: $(echo "$PROBE" | tail -1)"
             sleep 15
           done
           if [[ "$READY" -ne 1 ]]; then
-            echo "BLOCKED: Simulator did not become ready for spawn after 3 attempts" >&2
+            echo "BLOCKED: Simulator did not become ready for spawn after 12 attempts (3 min)" >&2
             xcrun simctl list devices "$SIM_UDID" >&2
             exit 2
           fi
