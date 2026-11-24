@@ -1,0 +1,234 @@
+name: iOS Simulator LuaJIT Runtime (macOS 26 arm64)
+
+# Fallback for Stage 6.2.9: same real XCTest runtime validation as
+# ios-simulator-runtime.yml, but on the GA macos-26 ARM64 hosted runner.
+# Xcode and the iOS Simulator runtime are discovered dynamically; nothing is
+# hardcoded to Xcode 16.4 / iOS 18.x. Does not touch the device workflow.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LUAJIT_COMMIT: '96f7b297326e9fd454b7186c6858b2773f94a0dc'
+  IOS_SIM_DEPLOYMENT_TARGET: '15.0'
+
+jobs:
+  simulator-runtime-macos26:
+    name: macOS 26 arm64 - iOS Simulator LuaJITHost runtime
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Record toolchain (dynamic Xcode / SDK / Simulator)
+        run: |
+          set -euo pipefail
+          mkdir -p ci
+          {
+            echo "uname -m: $(uname -m)"
+            echo "sw_vers: $(sw_vers | tr '\n' ' ')"
+            echo "xcode-select -p: $(xcode-select -p)"
+            echo "=== xcodebuild -version ==="
+            xcodebuild -version
+            echo "=== xcodebuild -showsdks ==="
+            xcodebuild -showsdks
+            echo "iphonesimulator SDK version: $(xcrun --sdk iphonesimulator --show-sdk-version)"
+            echo "iphonesimulator SDK path: $(xcrun --sdk iphonesimulator --show-sdk-path)"
+            echo "clang: $(clang --version | head -1)"
+            echo "cmake: $(cmake --version | head -1)"
+          } 2>&1 | tee ci/toolchain-report.txt
+          if [[ "$(uname -m)" != "arm64" ]]; then
+            echo "ERROR: macos-26 runner must be arm64, got $(uname -m)" >&2
+            exit 1
+          fi
+          xcrun simctl list runtimes --json > ci/simulator-runtimes.json
+          xcrun simctl list devices available --json > ci/simulator-devices.json
+          xcrun simctl list devices available | tee ci/simulator-devices.txt
+          cat ci/simulator-runtimes.json >> ci/toolchain-report.txt
+          cat ci/simulator-devices.json >> ci/toolchain-report.txt
+          cat ci/toolchain-report.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Select stable iOS Simulator runtime and iPhone device
+        run: |
+          set -euo pipefail
+          # Uses committed selector tested with fixtures (no assumed 'kind' field).
+          if ! python3 scripts/select_ios_simulator.py \
+                --runtimes ci/simulator-runtimes.json \
+                --devices ci/simulator-devices.json \
+                > ci/simulator-selection.txt 2>ci/select-sim.err; then
+            echo "No stable compatible iOS runtime/device found; trying official platform download once."
+            cat ci/select-sim.err
+            xcodebuild -downloadPlatform iOS || true
+            xcrun simctl list runtimes --json > ci/simulator-runtimes.json
+            xcrun simctl list devices available --json > ci/simulator-devices.json
+            python3 scripts/select_ios_simulator.py \
+              --runtimes ci/simulator-runtimes.json \
+              --devices ci/simulator-devices.json \
+              > ci/simulator-selection.txt || {
+                echo "BLOCKED: iOS Simulator runtime unavailable after official download attempt" >&2
+                exit 2
+              }
+          fi
+          IFS=$'\t' read -r SIM_UDID SIM_RUNTIME SIM_VERSION SIM_NAME < ci/simulator-selection.txt
+          echo "Selected: $SIM_NAME / $SIM_VERSION / $SIM_RUNTIME / $SIM_UDID"
+          {
+            echo "SIM_UDID=$SIM_UDID"
+            echo "SIM_RUNTIME=$SIM_RUNTIME"
+            echo "SIM_VERSION=$SIM_VERSION"
+            echo "SIM_NAME=$SIM_NAME"
+          } >> "$GITHUB_ENV"
+          echo "- Simulator: $SIM_NAME / $SIM_VERSION ($SIM_UDID)" >> "$GITHUB_STEP_SUMMARY"
+          xcrun simctl boot "$SIM_UDID" || true
+          xcrun simctl bootstatus "$SIM_UDID" -b
+          xcrun simctl list devices "$SIM_UDID" | tee ci/simulator-device.txt
+          # Device JSON has no architecture field: verify arm64 inside the
+          # booted Simulator itself instead of guessing from metadata.
+          SIM_ARCH="$(xcrun simctl spawn "$SIM_UDID" uname -m 2>/dev/null || true)"
+          echo "simulator architecture: $SIM_ARCH"
+          echo "- Simulator architecture: $SIM_ARCH" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$SIM_ARCH" != "arm64" ]]; then
+            echo "BLOCKED: selected Simulator is not arm64 ($SIM_ARCH)" >&2
+            exit 2
+          fi
+
+      - name: Build LuaJIT for iOS Simulator (pinned commit, JIT off, FFI on)
+        env:
+          LUAJIT_SIM_WORK_DIR: ${{ github.workspace }}/ci/luajit-sim
+        run: |
+          set -euo pipefail
+          test -x scripts/build_luajit_ios_simulator.sh
+          bash scripts/build_luajit_ios_simulator.sh 2>&1 | tee ci/luajit-sim-build.log
+          LUAJIT_LIB="$GITHUB_WORKSPACE/ci/luajit-sim/out-ios-simulator-arm64/libluajit.a"
+          LUAJIT_INCLUDE_DIR="$GITHUB_WORKSPACE/ci/luajit-sim/LuaJIT-${LUAJIT_COMMIT}/src"
+          test -f "$LUAJIT_LIB"
+          echo "LUAJIT_LIB=$LUAJIT_LIB" >> "$GITHUB_ENV"
+          echo "LUAJIT_INCLUDE_DIR=$LUAJIT_INCLUDE_DIR" >> "$GITHUB_ENV"
+
+      - name: Build ArizonaNeo Core for iOS Simulator (LuaJIT ON)
+        run: |
+          set -euo pipefail
+          cmake -S . -B ci/build-sim-core \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_SIM_DEPLOYMENT_TARGET" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DARIZONA_NEO_WITH_LUAJIT=ON \
+            -DLUAJIT_INCLUDE_DIR="$LUAJIT_INCLUDE_DIR" \
+            -DLUAJIT_LIBRARY="$LUAJIT_LIB" 2>&1 | tee ci/sim-core-configure.log
+          cmake --build ci/build-sim-core --target arizona_neo_core --parallel 2 2>&1 | tee ci/sim-core-build.log
+          nm -g ci/build-sim-core/libarizona_neo_core.a > ci/sim-core-nm.txt
+          grep -q 'LuaJITHost' ci/sim-core-nm.txt
+          echo "SIM_CORE_BUILD_OK"
+
+      - name: Run XCTest suite INSIDE the iOS Simulator
+        run: |
+          set -euo pipefail
+          set +e
+          xcodebuild test \
+            -project tests/ios_simulator/SimRuntimeTests.xcodeproj \
+            -scheme SimRuntimeTests \
+            -configuration Release \
+            -destination "platform=iOS Simulator,id=$SIM_UDID" \
+            -derivedDataPath "$PWD/ci/derived" \
+            -resultBundlePath "$PWD/ci/SimRuntimeTests.xcresult" \
+            CORE_LIB="$GITHUB_WORKSPACE/ci/build-sim-core/libarizona_neo_core.a" \
+            LUAJIT_LIB="$LUAJIT_LIB" \
+            LUAJIT_INCLUDE_DIR="$LUAJIT_INCLUDE_DIR" 2>&1 | tee ci/xcodebuild-test.log
+          XCODE_EXIT=${PIPESTATUS[0]}
+          set -e
+          echo "xcodebuild test exit: $XCODE_EXIT"
+          cat ci/xcodebuild-test.log
+          test "$XCODE_EXIT" -eq 0
+          test -d ci/SimRuntimeTests.xcresult
+          EXECUTED="$(grep -Eo 'Executed [0-9]+ tests' ci/xcodebuild-test.log | head -1 | awk '{print $2}' || true)"
+          test -n "$EXECUTED" && test "$EXECUTED" -gt 0
+          if grep -Eq 'with [1-9][0-9]* failures?|Test Suite .* failed' ci/xcodebuild-test.log; then
+            echo "ERROR: XCTest reported failures" >&2
+            exit 1
+          fi
+          {
+            echo "## iOS Simulator XCTest runtime results"
+            echo "- xcodebuild test exit: $XCODE_EXIT"
+            echo "- Tests executed: $EXECUTED"
+            echo "- Simulator: $SIM_NAME / $SIM_VERSION ($SIM_UDID)"
+            grep -E 'Test Case|Test Suite|Executed' ci/xcodebuild-test.log
+          } > ci/test-report.txt
+          cat ci/test-report.txt
+          cat ci/test-report.txt >> "$GITHUB_STEP_SUMMARY"
+          MATCHES="$(find "$PWD/ci/derived" -type f -name SimRuntimeTests -perm -u+x)"
+          COUNT="$(printf '%s\n' "$MATCHES" | grep -c . || true)"
+          if [[ "$COUNT" -ne 1 ]]; then
+            echo "ERROR: expected exactly one SimRuntimeTests runner binary, found $COUNT" >&2
+            echo "$MATCHES" >&2
+            exit 1
+          fi
+          echo "SIM_TEST_BIN=$MATCHES" >> "$GITHUB_ENV"
+          otool -l "$MATCHES" | grep -A4 'cmd LC_BUILD_VERSION' > ci/sim-test-platform.txt
+          cat ci/sim-test-platform.txt
+          grep -q 'platform 7' ci/sim-test-platform.txt
+          grep -q 'minos 15.0' ci/sim-test-platform.txt
+          echo "SIMULATOR_RUNTIME_OK"
+
+      - name: Binary inspection, SHA256 manifest and artifacts
+        run: |
+          set -euo pipefail
+          {
+            for f in "$LUAJIT_LIB" \
+                     "$GITHUB_WORKSPACE/ci/build-sim-core/libarizona_neo_core.a" \
+                     "$SIM_TEST_BIN"; do
+              echo "===== $f ====="
+              file "$f"
+              lipo -info "$f"
+              otool -hv "$f" | head -12
+              otool -l "$f" | grep -A4 'cmd LC_BUILD_VERSION' | head -12 || true
+              nm -g "$f" | grep -E ' T _?(luaL_newstate|lua_pcall|lua_close|luaopen_ffi|luaJIT_version)' | head -8 || true
+            done
+            echo "===== forbidden dependencies ====="
+            if grep -Ei 'ELF|__errno_location|__android_|JNIEnv|Java_|libdl\.so|/lib/ld-linux' ci/*.log ci/test-report.txt; then
+              echo "ERROR: Linux/Android dependency found" >&2
+              exit 1
+            fi
+            echo "NONE: no ELF / glibc / Bionic / JNI / libdl.so references"
+          } > ci/binary-inspection-report.txt 2>&1
+          cat ci/binary-inspection-report.txt
+          shasum -a 256 \
+            "$LUAJIT_LIB" \
+            ci/build-sim-core/libarizona_neo_core.a \
+            "$SIM_TEST_BIN" \
+            ci/xcodebuild-test.log \
+            ci/test-report.txt \
+            ci/binary-inspection-report.txt > ci/sha256-manifest.txt
+          cat ci/sha256-manifest.txt
+
+      - name: Upload macOS 26 Simulator runtime artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-luajit-runtime-macos26
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            ${{ env.LUAJIT_LIB }}
+            ci/build-sim-core/libarizona_neo_core.a
+            ${{ env.SIM_TEST_BIN }}
+            ci/SimRuntimeTests.xcresult
+            ci/xcodebuild-test.log
+            ci/test-report.txt
+            ci/binary-inspection-report.txt
+            ci/sha256-manifest.txt
+            ci/toolchain-report.txt
+            ci/simulator-runtimes.json
+            ci/simulator-devices.json
+            ci/simulator-selection.txt
+            ci/simulator-device.txt
+            ci/simulator-devices.txt
+            ci/sim-core-configure.log
+            ci/sim-core-build.log
+            ci/luajit-sim-build.log
+            ci/luajit-sim/out-ios-simulator-arm64/build-version.txt
+            ci/luajit-sim/out-ios-simulator-arm64/lipo.txt
