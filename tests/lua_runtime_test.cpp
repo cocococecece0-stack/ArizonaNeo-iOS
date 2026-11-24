@@ -5,7 +5,9 @@
 #endif
 
 #include <iostream>
+#include <stdexcept>
 #include <string>
+#include <type_traits>
 
 using namespace arizona_neo::core;
 
@@ -13,7 +15,15 @@ static int failures = 0;
 #define CHECK(cond, msg) do { if (!(cond)) { std::cerr << "FAIL: " << (msg) << "\n"; ++failures; } } while (0)
 
 #if defined(ARIZONA_NEO_WITH_LUAJIT)
+using arizona_neo::runtime::LuaExecutionResult;
+using arizona_neo::runtime::LuaExecutionStatus;
 using arizona_neo::runtime::LuaJITHost;
+using arizona_neo::runtime::LuaLibraryPolicy;
+
+static_assert(!std::is_copy_constructible<LuaJITHost>::value,
+              "LuaJITHost owns a lua_State and must not be copyable");
+static_assert(!std::is_copy_assignable<LuaJITHost>::value,
+              "LuaJITHost owns a lua_State and must not be copy-assignable");
 
 // Every successful/failed execute() and every getter must leave the stack empty.
 static void check_stack(LuaJITHost& h, const char* where) {
@@ -197,6 +207,148 @@ int main() {
     CHECK(host.get_global_number("fresh") == 1.0, "reinit execution");
     CHECK(host.get_global_string("persistent").empty(), "reinit has fresh state");
     host.shutdown();
+
+    // ------------------------------------------------------------------
+    // 7. A — centralized library policy
+    // ------------------------------------------------------------------
+    {
+        LuaJITHost libs;
+        CHECK(libs.initialize(), "policy host init");
+        const char* script =
+            "policy_base = type(print) == 'function' and 1 or 0\n"
+            "policy_coroutine = type(coroutine) ~= 'nil' and 1 or 0\n"
+            "policy_math = type(math) ~= 'nil' and 1 or 0\n"
+            "policy_string = type(string) ~= 'nil' and 1 or 0\n"
+            "policy_table = type(table) ~= 'nil' and 1 or 0\n"
+            "policy_package = type(package) ~= 'nil' and 1 or 0\n"
+            "policy_ffi = require('ffi') ~= nil and 1 or 0\n"
+            "policy_jit = type(jit) ~= 'nil' and 1 or 0\n"
+            "policy_forbidden = (io == nil and os == nil and debug == nil and bit == nil) and 1 or 0\n"
+            "policy_ok = 1";
+        CHECK(libs.execute(script, "library_policy"), "library policy script executed");
+        CHECK(libs.get_global_number("policy_ok") == 1.0, "policy script completed");
+        CHECK(libs.get_global_number("policy_base") == 1.0, "base open");
+        CHECK(libs.get_global_number("policy_coroutine") == 1.0, "coroutine via base open");
+        CHECK(libs.get_global_number("policy_math") == 1.0, "math open");
+        CHECK(libs.get_global_number("policy_string") == 1.0, "string open");
+        CHECK(libs.get_global_number("policy_table") == 1.0, "table open");
+        CHECK(libs.get_global_number("policy_package") == 1.0, "package open");
+        CHECK(libs.get_global_number("policy_ffi") == 1.0, "ffi open");
+        CHECK(libs.get_global_number("policy_jit") == 1.0, "jit open");
+        CHECK(libs.get_global_number("policy_forbidden") == 1.0,
+              "io/os/debug/bit remain closed");
+        CHECK(libs.execute(
+            "loaded_ok = (package.loaded['_G'] ~= nil and package.loaded['math'] ~= nil and "
+            "package.loaded['ffi'] ~= nil and package.loaded['jit'] ~= nil) and 1 or 0",
+            "package_loaded"), "package.loaded populated");
+        CHECK(libs.get_global_number("loaded_ok") == 1.0, "opened libraries registered once");
+        check_stack(libs, "library policy");
+        libs.shutdown();
+
+        LuaLibraryPolicy no_math;
+        no_math.math = false;
+        LuaJITHost custom(no_math);
+        CHECK(custom.initialize(), "custom policy host init");
+        CHECK(custom.execute("assert(math == nil)\ncustom_policy_ok = 1", "custom_policy"),
+              "custom policy disables math");
+        CHECK(custom.get_global_number("custom_policy_ok") == 1.0, "custom policy result");
+        custom.shutdown();
+    }
+
+    // ------------------------------------------------------------------
+    // 8. B — Lua-to-C++ bridge
+    // ------------------------------------------------------------------
+    {
+        LuaJITHost bridge;
+        CHECK(bridge.initialize(), "bridge host init");
+        CHECK(!bridge.register_function("runtime.ping", [](lua_State*) -> int { return 0; }),
+              "duplicate bridge registration rejected");
+        CHECK(bridge.execute(
+            "bridge_version = runtime.version()\n"
+            "bridge_ping = runtime.ping()\n"
+            "bridge_echo_num = runtime.echo(42)\n"
+            "bridge_echo_str = runtime.echo('abc')", "bridge_calls"),
+            "Lua calls C++ bridge functions");
+        CHECK(bridge.get_global_string("bridge_version").find("LuaJIT 2.1") != std::string::npos,
+              "runtime.version() result");
+        CHECK(bridge.get_global_string("bridge_ping") == "pong", "runtime.ping() result");
+        CHECK(bridge.get_global_number("bridge_echo_num") == 42.0, "runtime.echo(number)");
+        CHECK(bridge.get_global_string("bridge_echo_str") == "abc", "runtime.echo(string)");
+        check_stack(bridge, "bridge success");
+
+        CHECK(bridge.register_function("runtime.throws", [](lua_State*) -> int {
+            throw std::runtime_error("bridge failure");
+        }), "bridge exception function registered");
+        const auto bridge_error = bridge.execute_detailed("runtime.throws()", "bridge_error");
+        CHECK(bridge_error.status == LuaExecutionStatus::RuntimeError, "C++ exception becomes Lua runtime error");
+        CHECK(bridge_error.message.find("bridge failure") != std::string::npos,
+              "bridge exception message preserved");
+        check_stack(bridge, "bridge error");
+        CHECK(bridge.execute("after_bridge_error = 7", "bridge_recovery"), "state recovers after bridge error");
+        CHECK(bridge.get_global_number("after_bridge_error") == 7.0, "bridge recovery result");
+        bridge.shutdown();
+    }
+
+    // ------------------------------------------------------------------
+    // 9. C — structured execution result
+    // ------------------------------------------------------------------
+    {
+        LuaJITHost result_host;
+        const auto before = result_host.execute_detailed("x = 1", "before_init");
+        CHECK(before.status == LuaExecutionStatus::InvalidState, "execution before init is InvalidState");
+        CHECK(!before.message.empty(), "invalid-state message");
+        CHECK(result_host.initialize(), "result host init");
+
+        const auto ok = result_host.execute_detailed("result_ok = 1", "ok");
+        CHECK(ok.status == LuaExecutionStatus::Success, "successful status");
+        CHECK(ok.message.empty(), "successful message empty");
+        CHECK(ok.stack_top_after == 0, "successful stack restored");
+
+        const auto syntax = result_host.execute_detailed("return 2 +", "syntax");
+        CHECK(syntax.status == LuaExecutionStatus::SyntaxError, "syntax error status");
+        CHECK(!syntax.message.empty(), "syntax error message preserved");
+        CHECK(syntax.stack_top_after == ok.stack_top_after, "syntax stack restored");
+
+        const auto runtime = result_host.execute_detailed("error('contract boom')", "runtime");
+        CHECK(runtime.status == LuaExecutionStatus::RuntimeError, "runtime error status");
+        CHECK(runtime.message.find("contract boom") != std::string::npos, "runtime message preserved");
+        CHECK(runtime.stack_top_after == ok.stack_top_after, "runtime stack restored");
+
+        const bool bool_result = result_host.execute("bool_wrapper = 1", "wrapper");
+        CHECK(bool_result, "bool wrapper returns true on success");
+        result_host.shutdown();
+        const auto after = result_host.execute_detailed("return 1", "after");
+        CHECK(after.status == LuaExecutionStatus::InvalidState, "execution after shutdown is InvalidState");
+    }
+
+    // ------------------------------------------------------------------
+    // 10. D/E — error propagation, stack hygiene and lifecycle
+    // ------------------------------------------------------------------
+    {
+        LuaJITHost life;
+        CHECK(life.stack_top() == 0, "fresh stack empty");
+        CHECK(life.initialize(), "lifecycle initialize");
+        CHECK(life.initialize(), "repeated initialize idempotent");
+        CHECK(life.execute("life_a = 1", "life_a"), "lifecycle execute");
+        CHECK(!life.execute("error('life boom')", "life_error"), "lifecycle runtime error");
+        CHECK(life.last_error().find("life boom") != std::string::npos, "lifecycle error text");
+        CHECK(life.stack_top() == 0, "stack clean after error");
+        CHECK(life.execute("life_b = 2", "life_b"), "execute after error");
+        CHECK(life.get_global_number("life_a") == 1.0, "state intact after error");
+        CHECK(life.get_global_number("life_b") == 2.0, "post-error execute result");
+        life.shutdown();
+        CHECK(!life.is_initialized(), "lifecycle shutdown");
+        life.shutdown();
+        CHECK(!life.is_initialized(), "repeated shutdown safe");
+        const auto after_shutdown = life.execute_detailed("return 1", "post_shutdown");
+        CHECK(after_shutdown.status == LuaExecutionStatus::InvalidState, "no use after shutdown");
+        CHECK(life.initialize(), "re-initialize after shutdown");
+        CHECK(life.execute("life_fresh = 1", "life_fresh"), "execute after re-init");
+        CHECK(life.get_global_number("life_fresh") == 1.0, "re-init result");
+        CHECK(life.get_global_string("life_a").empty(), "re-init starts with fresh state");
+        CHECK(life.stack_top() == 0, "stack clean after re-init");
+        life.shutdown();
+    }
 
     if (failures == 0) std::cout << "lua runtime tests: PASSED\n";
     else std::cerr << "lua runtime tests: " << failures << " FAILED\n";

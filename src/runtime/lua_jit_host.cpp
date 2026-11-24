@@ -10,12 +10,28 @@ extern "C" {
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
+#include <luajit.h>
 }
 
+#include <cstdio>
+#include <cstring>
 #include <exception>
 #include <string>
+#include <utility>
 
 namespace arizona_neo::runtime {
+
+const char *to_string(LuaExecutionStatus status) noexcept {
+    switch (status) {
+        case LuaExecutionStatus::Success: return "Success";
+        case LuaExecutionStatus::SyntaxError: return "SyntaxError";
+        case LuaExecutionStatus::RuntimeError: return "RuntimeError";
+        case LuaExecutionStatus::InvalidState: return "InvalidState";
+        case LuaExecutionStatus::InternalError: return "InternalError";
+    }
+    return "Unknown";
+}
+
 namespace {
 
 // Lua 5.1's lua_getglobal() may invoke an __index metamethod on the globals
@@ -48,9 +64,68 @@ void copy_error_message(lua_State* L, std::string& out) {
     lua_settop(L, 0);
 }
 
+void copy_to_buffer(char* destination, std::size_t size, const char* text) {
+    if (size == 0) return;
+    if (text == nullptr) {
+        destination[0] = '\0';
+        return;
+    }
+    std::snprintf(destination, size, "%s", text);
+}
+
+// The trampoline converts a C++ exception into a Lua error. The message lives
+// in a POD buffer so that lua_error()'s longjmp cannot skip a std::string
+// destructor. No C++ object with a non-trivial destructor is alive at that point.
+int bridge_trampoline(lua_State* L) {
+    auto* function = static_cast<LuaBridgeFunction*>(lua_touserdata(L, lua_upvalueindex(1)));
+    char message[512];
+    message[0] = '\0';
+    int results = 0;
+    bool failed = false;
+    if (function == nullptr || !(*function)) {
+        failed = true;
+        copy_to_buffer(message, sizeof(message), "runtime bridge: invalid function");
+    } else {
+        try {
+            results = (*function)(L);
+        } catch (const std::exception& error) {
+            failed = true;
+            copy_to_buffer(message, sizeof(message), error.what());
+        } catch (...) {
+            failed = true;
+            copy_to_buffer(message, sizeof(message), "unknown C++ exception in runtime bridge");
+        }
+    }
+    if (failed) {
+        lua_pushstring(L, message);
+        return lua_error(L);
+    }
+    return results;
+}
+
 } // namespace
 
-LuaJITHost::LuaJITHost() = default;
+LuaJITHost::LuaJITHost() : LuaJITHost(LuaLibraryPolicy{}) {}
+
+LuaJITHost::LuaJITHost(const LuaLibraryPolicy& policy) : policy_(policy) {
+    // Minimal public Lua<->C++ bridge, installed into every new Lua state.
+    register_function("runtime.version", [](lua_State* L) -> int {
+        lua_pushstring(L, LUAJIT_VERSION);
+        return 1;
+    });
+    register_function("runtime.ping", [](lua_State* L) -> int {
+        lua_pushliteral(L, "pong");
+        return 1;
+    });
+    register_function("runtime.echo", [](lua_State* L) -> int {
+        if (lua_gettop(L) < 1) {
+            lua_pushnil(L);
+        } else {
+            lua_pushvalue(L, 1);
+        }
+        return 1;
+    });
+}
 
 LuaJITHost::~LuaJITHost() {
     shutdown();
@@ -68,39 +143,50 @@ bool LuaJITHost::initialize() {
             last_error_ = "luaL_newstate returned nullptr";
             return false;
         }
-        // Minimal, controlled set of standard libraries (Lua 5.1/LuaJIT pattern).
-        // io/os/debug are intentionally NOT opened at this stage.
-        auto open_lib = [&](lua_CFunction fn, const char* name) -> bool {
-            lua_pushcfunction(state_, fn);
-            lua_pushstring(state_, name ? name : "");
+
+        // Centralized library policy. `luaL_openlibs()` is intentionally never
+        // called: only the entries below can be opened, each at most once.
+        // `coroutine` is part of luaopen_base in LuaJIT (lib_base.c:698-706).
+        struct LibraryEntry {
+            const char* name;
+            lua_CFunction opener;
+            bool enabled;
+        };
+        const LibraryEntry libraries[] = {
+            { "", luaopen_base, policy_.base },
+            { LUA_MATHLIBNAME, luaopen_math, policy_.math },
+            { LUA_STRLIBNAME, luaopen_string, policy_.string },
+            { LUA_TABLIBNAME, luaopen_table, policy_.table },
+            { LUA_LOADLIBNAME, luaopen_package, policy_.package },
+            { LUA_FFILIBNAME, luaopen_ffi, policy_.ffi },
+            { LUA_JITLIBNAME, luaopen_jit, policy_.jit },
+            { "bit", luaopen_bit, policy_.bit },
+            { "io", luaopen_io, policy_.io },
+            { "os", luaopen_os, policy_.os },
+            { "debug", luaopen_debug, policy_.debug },
+        };
+
+        auto open_lib = [&](const LibraryEntry& entry) -> bool {
+            lua_pushcfunction(state_, entry.opener);
+            lua_pushstring(state_, entry.name);
             if (lua_pcall(state_, 1, 0, 0) != 0) {
                 copy_error_message(state_, last_error_);
                 return false;
             }
             return true;
         };
-        if (!open_lib(luaopen_base, "")) {
-            lua_close(state_); state_ = nullptr; initialized_ = false; return false;
-        }
-        if (!open_lib(luaopen_math, LUA_MATHLIBNAME)) {
-            lua_close(state_); state_ = nullptr; initialized_ = false; return false;
-        }
-        if (!open_lib(luaopen_string, LUA_STRLIBNAME)) {
-            lua_close(state_); state_ = nullptr; initialized_ = false; return false;
-        }
-        if (!open_lib(luaopen_table, LUA_TABLIBNAME)) {
-            lua_close(state_); state_ = nullptr; initialized_ = false; return false;
-        }
-        if (!open_lib(luaopen_package, LUA_LOADLIBNAME)) {
-            lua_close(state_); state_ = nullptr; initialized_ = false; return false;
-        }
-        if (!open_lib(luaopen_ffi, LUA_FFILIBNAME)) {
-            lua_close(state_); state_ = nullptr; initialized_ = false; return false;
-        }
-        if (!open_lib(luaopen_jit, LUA_JITLIBNAME)) {
-            lua_close(state_); state_ = nullptr; initialized_ = false; return false;
+
+        for (const LibraryEntry& entry : libraries) {
+            if (!entry.enabled) continue;
+            if (!open_lib(entry)) {
+                lua_close(state_);
+                state_ = nullptr;
+                initialized_ = false;
+                return false;
+            }
         }
 
+        install_bridge();
         initialized_ = true;
         return true;
     } catch (const std::exception& e) {
@@ -122,44 +208,121 @@ bool LuaJITHost::initialize() {
     }
 }
 
-bool LuaJITHost::execute(std::string_view source, std::string_view chunk_name) {
-    if (!initialized_ || state_ == nullptr) {
-        last_error_ = "runtime not initialized";
-        return false;
-    }
-    last_error_.clear();
+bool LuaJITHost::register_bridge_entry(const char* full_name, LuaBridgeFunction& function) {
+    if (state_ == nullptr || full_name == nullptr || *full_name == '\0') return false;
 
+    const int top = lua_gettop(state_);
+    std::string name(full_name);
+    const std::size_t dot = name.rfind('.');
+    if (dot == std::string::npos) {
+        lua_pushlightuserdata(state_, &function);
+        lua_pushcclosure(state_, bridge_trampoline, 1);
+        lua_setglobal(state_, name.c_str());
+    } else {
+        const std::string table_name = name.substr(0, dot);
+        const std::string field_name = name.substr(dot + 1);
+        lua_getglobal(state_, table_name.c_str());
+        if (!lua_istable(state_, -1)) {
+            lua_pop(state_, 1);
+            lua_newtable(state_);
+            lua_pushvalue(state_, -1);
+            lua_setglobal(state_, table_name.c_str());
+        }
+        lua_pushlightuserdata(state_, &function);
+        lua_pushcclosure(state_, bridge_trampoline, 1);
+        lua_setfield(state_, -2, field_name.c_str());
+        lua_pop(state_, 1);
+    }
+    lua_settop(state_, top);
+    return true;
+}
+
+void LuaJITHost::install_bridge() {
+    for (auto& entry : bridge_functions_) {
+        register_bridge_entry(entry.first.c_str(), entry.second);
+    }
+}
+
+bool LuaJITHost::register_function(const char* name, LuaBridgeFunction function) {
+    if (name == nullptr || *name == '\0') return false;
+    const std::string key(name);
+    if (bridge_functions_.find(key) != bridge_functions_.end()) return false;
+
+    const auto inserted = bridge_functions_.emplace(key, std::move(function));
+    if (!inserted.second) return false;
+    if (state_ != nullptr) {
+        register_bridge_entry(key.c_str(), inserted.first->second);
+    }
+    return true;
+}
+
+LuaExecutionResult LuaJITHost::execute_detailed(std::string_view source,
+                                                std::string_view chunk_name) {
+    LuaExecutionResult result;
+    result.status = LuaExecutionStatus::InvalidState;
+    result.message = "runtime not initialized";
+    result.stack_top_after = stack_top();
+
+    if (!initialized_ || state_ == nullptr) {
+        last_error_ = result.message;
+        return result;
+    }
+
+    last_error_.clear();
     std::string name(chunk_name);
     if (name.empty()) {
         name = "chunk";
     }
     std::string code(source);
+    const int top_before = lua_gettop(state_);
 
     try {
         // Both luaL_loadbuffer and lua_pcall are protected Lua C API entry
         // points: Lua errors inside the chunk become non-zero return codes.
-        if (luaL_loadbuffer(state_, code.c_str(), code.size(), name.c_str()) != 0) {
-            copy_error_message(state_, last_error_);
-            return false;
+        const int load_status = luaL_loadbuffer(state_, code.c_str(), code.size(), name.c_str());
+        if (load_status != 0) {
+            result.status = (load_status == LUA_ERRSYNTAX)
+                          ? LuaExecutionStatus::SyntaxError
+                          : (load_status == LUA_ERRMEM)
+                          ? LuaExecutionStatus::InternalError
+                          : LuaExecutionStatus::RuntimeError;
+            copy_error_message(state_, result.message);
+        } else {
+            const int call_status = lua_pcall(state_, 0, 1, 0);
+            if (call_status != 0) {
+                result.status = (call_status == LUA_ERRRUN || call_status == LUA_ERRERR)
+                              ? LuaExecutionStatus::RuntimeError
+                              : (call_status == LUA_ERRMEM)
+                              ? LuaExecutionStatus::InternalError
+                              : LuaExecutionStatus::RuntimeError;
+                if (result.status == LuaExecutionStatus::RuntimeError) {
+                    const char* message = lua_tostring(state_, -1);
+                    luaL_traceback(state_, state_, message ? message : "runtime error", 1);
+                }
+                copy_error_message(state_, result.message);
+            } else {
+                result.status = LuaExecutionStatus::Success;
+                result.message.clear();
+            }
         }
-
-        if (lua_pcall(state_, 0, 1, 0) != 0) {
-            copy_error_message(state_, last_error_);
-            return false;
-        }
-
-        // Leave no results or error objects on the stack after any execution.
-        lua_settop(state_, 0);
-        return true;
     } catch (const std::exception& e) {
-        last_error_ = e.what();
-        lua_settop(state_, 0);
-        return false;
+        result.status = LuaExecutionStatus::InternalError;
+        result.message = std::string("C++ exception during execute: ") + e.what();
     } catch (...) {
-        last_error_ = "unknown exception during execute";
-        lua_settop(state_, 0);
-        return false;
+        result.status = LuaExecutionStatus::InternalError;
+        result.message = "unknown C++ exception during execute";
     }
+
+    // Restore the exact stack height that existed before this call, including
+    // on every error path.
+    lua_settop(state_, top_before);
+    result.stack_top_after = lua_gettop(state_);
+    last_error_ = (result.status == LuaExecutionStatus::Success) ? std::string() : result.message;
+    return result;
+}
+
+bool LuaJITHost::execute(std::string_view source, std::string_view chunk_name) {
+    return execute_detailed(source, chunk_name).status == LuaExecutionStatus::Success;
 }
 
 void LuaJITHost::shutdown() noexcept {

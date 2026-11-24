@@ -6,8 +6,10 @@
 #include <cstdarg>
 #include <exception>
 #include <functional>
+#include <stdexcept>
 #include <string>
 
+using arizona_neo::runtime::LuaExecutionStatus;
 using arizona_neo::runtime::LuaJITHost;
 
 static NSString *ANDString(const std::string &value) {
@@ -398,6 +400,107 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
         }
         return true;
     });
+
+    // Stage 7.1.6 A-E: portable runtime bridge and structured result.
+    {
+        LuaJITHost portable;
+        if (!portable.initialize()) {
+            blocked("25_library_registration", "portable runtime did not initialize");
+            blocked("26_bridge_calls", "portable runtime did not initialize");
+            blocked("27_bridge_exception", "portable runtime did not initialize");
+            blocked("28_bridge_duplicate", "portable runtime did not initialize");
+            blocked("29_syntax_error_status", "portable runtime did not initialize");
+            blocked("30_result_contract", "portable runtime did not initialize");
+        } else {
+            stateTest("25_library_registration", [&](std::string &message) -> bool {
+                const bool ok = portable.execute(
+                    "assert(type(print) == 'function')\n"
+                    "assert(type(coroutine) ~= 'nil')\n"
+                    "assert(type(math) ~= 'nil')\n"
+                    "assert(type(string) ~= 'nil')\n"
+                    "assert(type(table) ~= 'nil')\n"
+                    "assert(type(package) ~= 'nil')\n"
+                    "assert(require('ffi') ~= nil)\n"
+                    "assert(type(jit) ~= 'nil')\n"
+                    "assert(io == nil and os == nil and debug == nil and bit == nil)\n"
+                    "portable_libs = 1", "portable_libraries");
+                if (!ok) {
+                    message = "library policy script failed: " + portable.last_error();
+                    return false;
+                }
+                return portable.get_global_number("portable_libs") == 1.0;
+            });
+
+            record("26_bridge_calls", [&](std::string &message) -> bool {
+                const bool ok = portable.execute(
+                    "bridge_version = runtime.version()\n"
+                    "bridge_ping = runtime.ping()\n"
+                    "bridge_echo = runtime.echo(42)", "bridge_calls");
+                if (!ok) {
+                    message = "Lua-to-C++ bridge calls failed: " + portable.last_error();
+                    return false;
+                }
+                const std::string version = portable.get_global_string("bridge_version");
+                if (version.find("LuaJIT 2.1") == std::string::npos ||
+                    portable.get_global_string("bridge_ping") != "pong" ||
+                    portable.get_global_number("bridge_echo") != 42.0) {
+                    message = "bridge results are incorrect";
+                    return false;
+                }
+                return portable.stack_top() == 0;
+            });
+
+            record("27_bridge_exception", [&](std::string &message) -> bool {
+                if (!portable.register_function("runtime.throws", [](lua_State*) -> int {
+                        throw std::runtime_error("bridge failure");
+                    })) {
+                    message = "could not register bridge exception function";
+                    return false;
+                }
+                const auto result = portable.execute_detailed("runtime.throws()", "bridge_exception");
+                if (result.status != LuaExecutionStatus::RuntimeError ||
+                    result.message.find("bridge failure") == std::string::npos || result.stack_top_after != 0) {
+                    message = "C++ exception was not converted into a safe Lua runtime error";
+                    return false;
+                }
+                return true;
+            });
+
+            record("28_bridge_duplicate", [&](std::string &message) -> bool {
+                if (portable.register_function("runtime.ping", [](lua_State*) -> int { return 0; })) {
+                    message = "duplicate bridge registration was accepted";
+                    return false;
+                }
+                return portable.execute("dup_probe = runtime.ping()", "duplicate_probe");
+            });
+
+            record("29_syntax_error_status", [&](std::string &message) -> bool {
+                const auto result = portable.execute_detailed("return 2 +", "syntax_status");
+                if (result.status != LuaExecutionStatus::SyntaxError || result.message.empty() ||
+                    result.stack_top_after != 0) {
+                    message = "syntax error was not classified or stack was not restored";
+                    return false;
+                }
+                return true;
+            });
+
+            record("30_result_contract", [&](std::string &message) -> bool {
+                const auto success = portable.execute_detailed("result_contract = 1", "result_success");
+                const auto runtime = portable.execute_detailed("error('result boom')", "result_runtime");
+                if (success.status != LuaExecutionStatus::Success || !success.message.empty() ||
+                    success.stack_top_after != 0 ||
+                    runtime.status != LuaExecutionStatus::RuntimeError ||
+                    runtime.message.find("result boom") == std::string::npos ||
+                    runtime.stack_top_after != success.stack_top_after) {
+                    message = "structured execution result contract violated";
+                    return false;
+                }
+                return true;
+            });
+
+            portable.shutdown();
+        }
+    }
 
     // Overall verdict: FAIL wins over BLOCKED; PASS only when every test passed.
     BOOL sawFailure = NO;
