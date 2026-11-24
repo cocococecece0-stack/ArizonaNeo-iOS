@@ -1,0 +1,13 @@
+{
+  "devices": {
+    "com.apple.CoreSimulator.SimRuntime.iOS-17-5": [
+      {
+        "name": "iPhone 15",
+        "udid": "UDID-15",
+        "isAvailable": true,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone15",
+        "state": "Shutdown"
+      }
+    ]
+  }
+}

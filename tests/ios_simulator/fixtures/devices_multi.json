@@ -1,0 +1,52 @@
+{
+  "devices": {
+    "com.apple.CoreSimulator.SimRuntime.iOS-17-5": [
+      {
+        "name": "iPhone 15",
+        "udid": "UDID-15-OLD",
+        "isAvailable": true,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone15",
+        "state": "Shutdown"
+      }
+    ],
+    "com.apple.CoreSimulator.SimRuntime.iOS-18-5": [
+      {
+        "name": "iPhone 15",
+        "udid": "UDID-15-NEW",
+        "isAvailable": true,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone15",
+        "state": "Shutdown"
+      },
+      {
+        "name": "iPhone 16",
+        "udid": "UDID-16-NEW",
+        "isAvailable": true,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone16",
+        "state": "Shutdown"
+      },
+      {
+        "name": "iPhone 16",
+        "udid": "UDID-16-UNAVAILABLE",
+        "isAvailable": false,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone16",
+        "state": "Shutdown"
+      },
+      {
+        "name": "iPhone 16",
+        "udid": "UDID-16-BADTYPE",
+        "isAvailable": true,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone17",
+        "state": "Shutdown"
+      }
+    ],
+    "com.apple.CoreSimulator.SimRuntime.iOS-19-0": [
+      {
+        "name": "iPhone 17",
+        "udid": "UDID-17-BETA",
+        "isAvailable": true,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone17",
+        "state": "Shutdown"
+      }
+    ]
+  }
+}

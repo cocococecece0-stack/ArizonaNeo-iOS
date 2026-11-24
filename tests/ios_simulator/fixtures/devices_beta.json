@@ -1,0 +1,13 @@
+{
+  "devices": {
+    "com.apple.CoreSimulator.SimRuntime.iOS-19-0": [
+      {
+        "name": "iPhone 17",
+        "udid": "UDID-17-BETA",
+        "isAvailable": true,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone17",
+        "state": "Shutdown"
+      }
+    ]
+  }
+}

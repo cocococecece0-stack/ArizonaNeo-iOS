@@ -1,0 +1,109 @@
+{
+  "runtimes": [
+    {
+      "name": "iOS 17.5",
+      "version": "17.5",
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-17-5",
+      "platform": "iOS",
+      "isAvailable": true,
+      "bundlePath": "/Library/Developer/CoreSimulator/Volumes/com.apple.CoreSimulator.SimRuntime.iOS-17-5",
+      "build": "22F76",
+      "supportedDeviceTypes": [
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone16",
+          "name": "iPhone16",
+          "productFamily": "iPhone"
+        },
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone15",
+          "name": "iPhone15",
+          "productFamily": "iPhone"
+        }
+      ]
+    },
+    {
+      "name": "iOS 18.5",
+      "version": "18.5",
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-18-5",
+      "platform": "iOS",
+      "isAvailable": true,
+      "bundlePath": "/Library/Developer/CoreSimulator/Volumes/com.apple.CoreSimulator.SimRuntime.iOS-18-5",
+      "build": "22F76",
+      "supportedDeviceTypes": [
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone16",
+          "name": "iPhone16",
+          "productFamily": "iPhone"
+        },
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone15",
+          "name": "iPhone15",
+          "productFamily": "iPhone"
+        }
+      ]
+    },
+    {
+      "name": "iOS 19.0 Beta",
+      "version": "19.0",
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-19-0",
+      "platform": "iOS",
+      "isAvailable": true,
+      "bundlePath": "/Library/Developer/CoreSimulator/Volumes/com.apple.CoreSimulator.SimRuntime.iOS-19-0",
+      "build": "22F76",
+      "supportedDeviceTypes": [
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone16",
+          "name": "iPhone16",
+          "productFamily": "iPhone"
+        },
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone15",
+          "name": "iPhone15",
+          "productFamily": "iPhone"
+        }
+      ]
+    },
+    {
+      "name": "iOS 18.0",
+      "version": "18.0",
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-18-0",
+      "platform": "iOS",
+      "isAvailable": false,
+      "bundlePath": "/Library/Developer/CoreSimulator/Volumes/com.apple.CoreSimulator.SimRuntime.iOS-18-0",
+      "build": "22F76",
+      "supportedDeviceTypes": [
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone16",
+          "name": "iPhone16",
+          "productFamily": "iPhone"
+        },
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone15",
+          "name": "iPhone15",
+          "productFamily": "iPhone"
+        }
+      ]
+    },
+    {
+      "name": "iOS 18.0",
+      "version": "18.0",
+      "identifier": "com.apple.CoreSimulator.SimRuntime.tvOS-18-0",
+      "platform": "tvOS",
+      "isAvailable": true,
+      "bundlePath": "/Library/Developer/CoreSimulator/Volumes/com.apple.CoreSimulator.SimRuntime.tvOS-18-0",
+      "build": "22F76",
+      "supportedDeviceTypes": [
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone16",
+          "name": "iPhone16",
+          "productFamily": "iPhone"
+        },
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone15",
+          "name": "iPhone15",
+          "productFamily": "iPhone"
+        }
+      ]
+    }
+  ]
+}

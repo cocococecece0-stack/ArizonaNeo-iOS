@@ -1,0 +1,25 @@
+{
+  "runtimes": [
+    {
+      "name": "iOS 18.5",
+      "version": "18.5",
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-18-5",
+      "platform": "iOS",
+      "isAvailable": false,
+      "bundlePath": "/Library/Developer/CoreSimulator/Volumes/com.apple.CoreSimulator.SimRuntime.iOS-18-5",
+      "build": "22F76",
+      "supportedDeviceTypes": [
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone16",
+          "name": "iPhone16",
+          "productFamily": "iPhone"
+        },
+        {
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone15",
+          "name": "iPhone15",
+          "productFamily": "iPhone"
+        }
+      ]
+    }
+  ]
+}
