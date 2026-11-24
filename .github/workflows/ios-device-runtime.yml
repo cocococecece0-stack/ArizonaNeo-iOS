@@ -23,7 +23,7 @@ env:
 jobs:
   build-device-test-host:
     name: iOS arm64 device test host (unsigned IPA)
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 60
 
     steps:
@@ -44,7 +44,9 @@ jobs:
             clang --version | head -1
             cmake --version | head -1
           } 2>&1 | tee ci/toolchain-report.txt
-          [[ "$(uname -m)" == "arm64" ]] || { echo "ERROR: expected arm64 runner" >&2; exit 1; }
+          # Build host is Intel x86_64; the TARGET stays arm64-apple-ios15.0 via
+          # ARCHS=arm64 / SDKROOT=iphoneos in the Xcode project.
+          [[ "$(uname -m)" == "x86_64" ]] || { echo "ERROR: expected x86_64 Intel runner" >&2; exit 1; }
           cat ci/toolchain-report.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Download and verify pinned device artifacts
