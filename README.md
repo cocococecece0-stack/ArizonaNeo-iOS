@@ -25,10 +25,9 @@ Experimental iOS porting research project for a NeoMLoader-compatible Lua enviro
 
 ## Current status
 
-Stage 2: core testing infrastructure.
+Stage 6.2 (in progress in repo): LuaJIT runtime integration (`LuaJITHost`, optional `ARIZONA_NEO_WITH_LUAJIT`). iOS `libluajit.a` artifact produced in Stage 6.1.3 (run `45253149431`). No NeoLoader/Android/GameBridge integration yet.
 
-C++ Core builds as a static library and has a minimal CTest-based test runner.
-No working loader or game integration exists yet.
+C++ Core builds as a static library; tests run via CTest.
 
 ## Build locally
 

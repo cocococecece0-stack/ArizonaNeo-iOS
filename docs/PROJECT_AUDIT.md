@@ -63,14 +63,15 @@ ArizonaNeo-iOS/
 
 | Компонент | Файл(ы) | Состояние |
 |---|---|---|
-| Сборочная система | `CMakeLists.txt` | Подключён CTest (`include(CTest)`), тестовый подкаталог `tests/`. Статическая библиотека `arizona_neo_core` (2 cpp-файла). Версия проекта 0.1.0. C++20. iOS-специфичные параметры задаются в CI. |
+| Сборочная система | `CMakeLists.txt` | CTest включён; опция `ARIZONA_NEO_WITH_LUAJIT` (OFF по умолчанию). При включении ищет LuaJIT через `LUAJIT_INCLUDE_DIR`/`LUAJIT_LIBRARY`/`LUAJIT_ROOT`, линкует статическую lib, определяет `ARIZONA_NEO_WITH_LUAJIT=1`. |
 | Версия | `include/.../version.hpp`, `src/core/version.cpp` | Реализовано: `version()` возвращает `"0.1.0-research"`. Покрыто тестом `tests/version_test.cpp`. |
-| Интерфейс Lua-хоста | `include/.../lua_host.hpp` | Абстрактный класс `LuaHost`: `initialize()`, `execute(source, chunk_name)`, `shutdown()`. Реализации нет. Аудит API — раздел 5.1. |
-| Реализация Lua-хоста | `src/core/lua_host.cpp` | Заглушка: только комментарий. Lua runtime не подключён. |
-| CI | `.github/workflows/ios-core.yml` | `macos-15`: сборка iOS (`iphoneos`, `arm64`, deployment target 15.0), проверка артефакта, отдельная host-сборка и запуск `ctest`. |
-| Документация | `README.md`, `docs/PORTING_PLAN.md`, `docs/RESEARCH_NOTES.md`, `docs/PROJECT_AUDIT.md` | Актуализированы для Stage 2. |
-| Тесты | `tests/version_test.cpp`, `tests/CMakeLists.txt` | 1 тест: непустая версия, соответствие `"0.1.0-research"`, доступность через публичный заголовок. Проходит в Debug и Release. |
-| Лицензии | — | Файл лицензии отсутствует. Сторонние компоненты не подключены. |
+| Интерфейс Lua-хоста | `include/arizona_neo/core/lua_host.hpp` | Абстрактный класс `LuaHost`: `initialize()`, `execute(source, chunk_name)`, `shutdown()` (без изменений в Stage 6.2). |
+| Реализация Lua-хоста (stage) | `src/core/lua_host.cpp` | Исходная заглушка сохранена; при `ARIZONA_NEO_WITH_LUAJIT` добавляется `src/runtime/lua_jit_host.cpp`. |
+| LuaJIT runtime | `include/arizona_neo/runtime/lua_jit_host.hpp`, `src/runtime/lua_jit_host.cpp` | `LuaJITHost` (RAII, `lua_State`, минимальные libs: `_G,math,string,table,package,ffi,jit`). Доступен только с `ARIZONA_NEO_WITH_LUAJIT`. |
+| CI | `.github/workflows/ios-core.yml` | iOS Core build (macos-15). Отдельный workflow `luajit-ios.yml` для сборки iOS `libluajit.a` (run `45253149431`). |
+| Документация | `docs/*.md`, `README.md` | Обновлены в Stage 6.2: `LUAJIT_RUNTIME_INTEGRATION.md`, `LUA_RUNTIME_RESEARCH.md`, `PORTING_PLAN.md`, `PROJECT_AUDIT.md`, `README.md`. |
+| Тесты | `tests/*` | `version_test`, `logger_test`, `filesystem_test`, `scheduler_test`, `event_bus_test`, `lua_runtime_test` (пропуск при LuaJIT off). |
+| Лицензии | — | Файл лицензии репозитория отсутствует; LuaJIT MIT (внешний компонент). |
 
 ## 4. Результаты проверки сборки
 
@@ -179,12 +180,54 @@ clang++ -std=c++20 -I include -c src/core/lua_host.cpp -o /tmp/opencode/lua_host
 - Обновлены `PORTING_PLAN.md` и `PROJECT_AUDIT.md`.
 - C++-реализация не изменялась. Commit/push не выполнялись. Тесты проходят (1/1).
 
+## 11. Stage 6.2.3 — диагностика линковки LuaJIT (фактические результаты)
+
+Полный отчёт: `docs/STAGE_6_2_3_LINKER_DIAGNOSIS.md`.
+
+- Причина отказов линковки установлена и подтверждена воспроизводимым тестом:
+  заголовки LuaJIT не содержат `extern "C"` guards, а
+  `src/runtime/lua_jit_host.cpp` включал их без обёртки → C++ name mangling
+  (`_Z13luaL_newstatev` и т.п.) → `undefined reference` против C-символов
+  `libluajit.a`. Архив, символы, visibility, архитектура и конфигурация
+  (FFI/JIT) LuaJIT корректны; порядок линковки ни при чём.
+- Исправление (минимальное): обёртка `extern "C" {}` вокруг Lua-включений в
+  `src/runtime/lua_jit_host.cpp`. `CMakeLists.txt` не менялся.
+- Дополнительно задокументировано: свежий `cmake configure` в Termux/PRoot-
+  среде требует `PREFIX=/data/data/com.termux/files/usr` (CMake 4.5 определяет
+  host как Android и читает `$ENV{PREFIX}/include/android/api-level.h`); на CI
+  (настоящий Linux) не воспроизводится.
+- Проверено: минимальные C/C++/shared-тесты линкуются и работают (exit 0);
+  CMake-минимум с CTest — 1/1; основной проект LuaJIT-enabled Debug — сборка
+  OK, `lua_runtime_test` слинкован, ctest **6/6 Passed**; свежий configure с
+  `PREFIX` — сборка OK, 6/6 Passed.
+- Осталось: проверка iOS ARM64 артефакта (Stage 6.1.3) через Apple toolchain.
+
+## 12. Stage 6.2.4 — валидация и укрепление LuaJIT runtime (фактические результаты)
+
+Полный отчёт: `docs/STAGE_6_2_4_RUNTIME_VALIDATION.md`.
+
+- JIT disabled и FFI enabled подтверждены поведенчески (`jit.status() == false`, `select('#', ...) == 1`, `ffi.new` + struct fields) и байт-идентичной пересборкой commit `96f7b29…` с `XCFLAGS="-DLUAJIT_DISABLE_JIT"` (sha256 `963c7ea3…`); добавлен `scripts/build_luajit_linux_host.sh`. Ошибочный вывод Stage 6.2.3 про «JIT включён» исправлен.
+- Укреплён `LuaJITHost`: геттеры globals выполняются через защищённый `lua_pcall`-trampoline (защита от longjmp через `__index` metamethod), извлечение error-объекта проверяет тип, добавлен тестовый API `stack_top()` для реальной проверки стека.
+- Расширены тесты: lifecycle (повторный initialize/shutdown/re-init), выполнение и ошибки, globals (включая nullptr и неверный тип), metamethod-longjmp, JIT, FFI (включая FFI-ошибку), контроль `stack_top()==0`.
+- Сборки/тесты: Debug+LuaJIT 6/6, Release+LuaJIT 6/6, Debug и Release без LuaJIT 6/6 (lua_runtime_test SKIPPED). `lua_runtime_test` содержит реальные LuaJIT-символы.
+- Ограничения: ASan/LSan не запускаются в PRoot (`heap size 40000002000 exceeds max user virtual address`); iOS ARM64 runtime не проверялся; OOM-longjmp в unprotected Lua API остаётся теоретическим риском.
+- `.gitignore` дополнен `.luajit-stage621/`; commit/push не выполнялись.
+
 - Добавить тесты (хотя бы smoke-тест для `version()`).
 - Реализовать iOS-адаптеры и каталоги, заявленные в README.
 - Провести исследование ABI/экспортов оригинального iOS-бинарника.
 - Выбрать и легально интегрировать Lua runtime для iOS ARM64.
 - Настроить локальную воспроизводимую сборку под iOS (через macOS/CI).
 - Добавить файл лицензии и политику проверки лицензий зависимостей.
+
+## 13. Stage 6.2.5 — валидация iOS ARM64 LuaJIT интеграции (фактические результаты)
+
+Полный отчёт: `docs/STAGE_6_2_5_IOS_INTEGRATION_VALIDATION.md`.
+
+- Artifact `luajit-ios-arm64` скачан из run 45253149431 (id 14855513382), zip SHA256 `58ff22c6…`, lib SHA256 `6b3c0878…`; подтверждены 70 Mach-O ARM64 объектов, platform IOS, minos 15.0.0, 0 ELF-объектов, 0 неразрешённых LuaJIT-внутренних символов, `luaopen_ffi` и Lua C API на месте, JIT отключён (`LJ_OS_NOJIT` + `XCFLAGS`), 85 внешних символов — только Apple libc/libm/libSystem; JNI/Bionic/glibc-зависимостей нет.
+- Локальный хост — Linux AArch64/PRoot: `xcodebuild`/`xcrun`/`otool`/`lipo` отсутствуют, iOS-линковка не выполнялась. Версии Apple toolchain получены из логов macOS runner: macOS 15.7.9, Xcode 16.4, SDK iOS 18.5, Apple Clang 17.0.0.
+- Подготовлен `scripts/validate_ios_luajit_core.sh` (только macOS, с проверкой artifact SHA и отдельным CMake build), **не запускался**. Существующий `ios-core.yml` собирает iOS Core без `ARIZONA_NEO_WITH_LUAJIT` — текущая iOS CI не проверяет LuaJIT.
+- Не подтверждены: iOS compile/link Core+LuaJIT, бинарные проверки конечного Mach-O и runtime на устройстве; конфликты символов с игровым приложением проверить нечем (в репозитории нет Xcode-проекта/IPA). К Stage 6.3 не переходим; commit/push не выполнялись.
 
 ## 14. Stage 6.2.6 — GitHub Actions iOS ARM64 Core + LuaJIT (подготовка, не запущено)
 
