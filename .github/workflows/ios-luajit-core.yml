@@ -79,6 +79,27 @@ jobs:
       - name: Prepare work directories
         run: |
           mkdir -p ci/artifact ci/verify ci/luajit-src ci/build-ios ci/link-test ci/build-link-test
+          # iOS CMake wraps executables in .app bundles, so their paths differ
+          # from the target names. Resolve every binary by a strict, single-match
+          # search instead of hardcoding a path. POSIX-compatible (bash 3.2).
+          cat > ci/find-one-executable.sh <<'FINDER'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          SEARCH_DIR="$1"
+          EXE_NAME="$2"
+          MATCHES_FILE="$(mktemp)"
+          find "$SEARCH_DIR" -type f -name "$EXE_NAME" -perm -u+x > "$MATCHES_FILE"
+          COUNT="$(wc -l < "$MATCHES_FILE" | tr -d ' ')"
+          if [[ "$COUNT" -ne 1 ]]; then
+            echo "ERROR: expected exactly one executable '$EXE_NAME' under $SEARCH_DIR, found $COUNT" >&2
+            cat "$MATCHES_FILE" >&2
+            rm -f "$MATCHES_FILE"
+            exit 1
+          fi
+          cat "$MATCHES_FILE"
+          rm -f "$MATCHES_FILE"
+          FINDER
+          chmod +x ci/find-one-executable.sh
 
       - name: Fetch LuaJIT headers from pinned commit
         run: |
@@ -205,7 +226,10 @@ jobs:
           # LuaJITHost must really be compiled into the Core archive.
           nm -g ci/build-ios/libarizona_neo_core.a > ci/core-nm.txt
           grep -q 'LuaJITHost' ci/core-nm.txt
-          echo "CORE_BUILD_OK"
+          LUA_TEST_BIN="$(bash ci/find-one-executable.sh "$PWD/ci/build-ios/tests" lua_runtime_test)"
+          test -f "$LUA_TEST_BIN"
+          echo "LUA_TEST_BIN=$LUA_TEST_BIN" >> "$GITHUB_ENV"
+          echo "CORE_BUILD_OK; lua_runtime_test at $LUA_TEST_BIN (compile-only)"
 
       - name: Static link test (real Apple linker, LuaJITHost::initialize/execute)
         run: |
@@ -245,9 +269,11 @@ jobs:
             -DCORE_LIB="$GITHUB_WORKSPACE/ci/build-ios/libarizona_neo_core.a" \
             -DLUAJIT_LIB="$GITHUB_WORKSPACE/ci/libluajit.a" 2>&1 | tee ci/link-configure.log
           cmake --build ci/build-link-test --parallel 2 2>&1 | tee ci/link-build.log
-          test -f ci/build-link-test/ios_luajit_link_test
+          LINK_BIN="$(bash ci/find-one-executable.sh "$PWD/ci/build-link-test" ios_luajit_link_test)"
+          test -f "$LINK_BIN"
+          echo "LINK_BIN=$LINK_BIN" >> "$GITHUB_ENV"
           # The Apple linker must have resolved all LuaJIT symbols.
-          nm -g ci/build-link-test/ios_luajit_link_test | grep ' U ' > ci/link-test-undefined.txt || true
+          nm -g "$LINK_BIN" | grep ' U ' > ci/link-test-undefined.txt || true
           if grep -qE ' U _?(lj_|lua)' ci/link-test-undefined.txt; then
             echo "ERROR: unresolved LuaJIT symbol in link test" >&2
             cat ci/link-test-undefined.txt >&2
@@ -258,12 +284,14 @@ jobs:
       - name: Inspect resulting binaries
         run: |
           set -euo pipefail
+          test -n "$LUA_TEST_BIN" && test -f "$LUA_TEST_BIN"
+          test -n "$LINK_BIN" && test -f "$LINK_BIN"
           {
             for f in \
               "$GITHUB_WORKSPACE/ci/libluajit.a" \
               "$GITHUB_WORKSPACE/ci/build-ios/libarizona_neo_core.a" \
-              "$GITHUB_WORKSPACE/ci/build-ios/tests/lua_runtime_test" \
-              "$GITHUB_WORKSPACE/ci/build-link-test/ios_luajit_link_test"; do
+              "$LUA_TEST_BIN" \
+              "$LINK_BIN"; do
               [ -e "$f" ] || continue
               echo "===== $f ====="
               file "$f"
@@ -291,8 +319,8 @@ jobs:
               ci/luajit-artifact.zip \
               ci/libluajit.a \
               ci/build-ios/libarizona_neo_core.a \
-              ci/build-ios/tests/lua_runtime_test \
-              ci/build-link-test/ios_luajit_link_test \
+              "$LUA_TEST_BIN" \
+              "$LINK_BIN" \
               ci/luajit-src/src/lua.h \
               ci/luajit-src/src/luaconf.h \
               ci/luajit-src/src/lauxlib.h \
@@ -307,6 +335,8 @@ jobs:
             echo "- iOS target: arm64-apple-ios$IOS_DEPLOYMENT_TARGET (CMAKE_SYSTEM_NAME=iOS)"
             echo "- Core build: PASS; static link test: PASS (compile-only)"
             echo "- iOS device/simulator runtime: NOT TESTED"
+            echo "- lua_runtime_test binary: $LUA_TEST_BIN"
+            echo "- link-test binary: $LINK_BIN"
             echo "- Fallback rebuild used: $USING_FALLBACK"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -324,8 +354,8 @@ jobs:
             ci/luajit-src/src/lauxlib.h
             ci/luajit-src/src/lualib.h
             ci/luajit-src/src/luajit.h
-            ci/build-ios/tests/lua_runtime_test
-            ci/build-link-test/ios_luajit_link_test
+            ${{ env.LUA_TEST_BIN }}
+            ${{ env.LINK_BIN }}
             ci/link-test-undefined.txt
             ci/binary-inspection-report.txt
             ci/sha256-manifest.txt
