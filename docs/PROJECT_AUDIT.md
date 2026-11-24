@@ -237,3 +237,9 @@ clang++ -std=c++20 -I include -c src/core/lua_host.cpp -o /tmp/opencode/lua_host
 - Полный SHA256 входного `libluajit.a`, полученный заново из run 45253149431 / artifact 14855513382: `6b3c087831456891cf572f56aa9127b9539507b32c1552582eaf87c6deb31343`.
 - Workflow **не запущен**: `gh workflow run ios-luajit-core.yml` → HTTP 404 (файл ещё не на remote; push запрещён). iOS compile/link Core+LuaJIT и runtime на устройстве не выполнены; этап не завершён, к Stage 6.3 не переходим.
 - Локально проверено: `git diff --check` (0), YAML parse, `bash -n` всех 9 run-блоков и обоих скриптов, контрольный CMake configure. Commit/push не выполнялись.
+
+## 15. Stage 6.2.9 — iOS Simulator runtime validation (подготовка, не запускалось)
+
+Подготовлены: `scripts/build_luajit_ios_simulator.sh` (pinned commit, iphonesimulator SDK, `-mios-simulator-version-min=15.0`, platform 7 проверяется через `otool -l`, JIT off, FFI on), `tests/ios_simulator/` (реальные Lua/FFI/lifecycle-сценарии через `LuaJITHost`), `.github/workflows/ios-simulator-runtime.yml` (запуск XCTest runner внутри симулятора через `xcodebuild test` и `.xcresult`, artifacts retention 30 дней). Device-сборка Stage 6.2.8 не изменялась.
+
+Workflow не отправлен на remote (commit/push в этом этапе запрещены), поэтому фактического выполнения в iOS Simulator, SHA256 simulator-артефактов и отчёта по тестам нет. Stage 6.2.9 не считается успешным до реального запуска. Отчёт: `docs/STAGE_6_2_9_IOS_SIMULATOR_RUNTIME.md`.

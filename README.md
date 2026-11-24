@@ -71,3 +71,11 @@ verifies it, builds ArizonaNeo Core with `ARIZONA_NEO_WITH_LUAJIT=ON` for
 It is not on the remote default branch yet (dispatch → HTTP 404), so no iOS
 compile/link or device runtime result exists at this point. See
 `docs/STAGE_6_2_6_GITHUB_IOS_CORE_BUILD.md`.
+
+## Stage 6.2.9 (prepared, not executed)
+
+Separate iOS Simulator runtime validation is prepared: `.github/workflows/ios-simulator-runtime.yml`,
+`scripts/build_luajit_ios_simulator.sh` and `tests/ios_simulator/`. It builds pinned LuaJIT 2.1
+for `arm64-apple-ios15.0-simulator` (JIT off, FFI on), links `LuaJITHost`, and runs an XCTest suite
+**inside a booted iOS Simulator** via `xcodebuild test` (`.xcresult` result bundle). Not dispatched yet (no push in this
+stage); see `docs/STAGE_6_2_9_IOS_SIMULATOR_RUNTIME.md`.
