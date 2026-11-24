@@ -1,16 +1,22 @@
 #import "DeviceRuntimeTests.h"
 
+#import <Foundation/Foundation.h>
+
 #include "arizona_neo/runtime/lua_jit_host.hpp"
+#include "arizona_neo/runtime/portable_script_loader.hpp"
 
 #include <chrono>
 #include <cstdarg>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <stdexcept>
 #include <string>
 
+using arizona_neo::core::SandboxedFilesystem;
 using arizona_neo::runtime::LuaExecutionStatus;
 using arizona_neo::runtime::LuaJITHost;
+using arizona_neo::runtime::PortableScriptLoader;
 
 static NSString *ANDString(const std::string &value) {
     return [NSString stringWithUTF8String:value.c_str()];
@@ -499,6 +505,111 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
             });
 
             portable.shutdown();
+        }
+    }
+
+    // Stage 7.2.1: portable script loading from an app-owned sandbox directory.
+    {
+        NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,
+                                                                   NSUserDomainMask, YES).firstObject;
+        if (documents == nil) {
+            blocked("31_portable_script_load", "Documents directory unavailable");
+            blocked("32_portable_invalid_path", "Documents directory unavailable");
+            blocked("33_portable_unload_reload", "Documents directory unavailable");
+            blocked("34_portable_disabled_libs", "Documents directory unavailable");
+        } else {
+            const std::filesystem::path root([[documents stringByAppendingPathComponent:
+                                               @"ArizonaNeoDeviceTest/scripts"] UTF8String]);
+            record("31_portable_script_load", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) {
+                    message = "script host did not initialize";
+                    return false;
+                }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                if (!fs.write_file("device.lua", "device_script_ok = 42\n").ok) {
+                    message = "cannot write local script";
+                    return false;
+                }
+                if (!loader.load("device", "device.lua").ok ||
+                    !loader.execute("device").ok) {
+                    message = "local script load/execute failed: " + loader.last_error();
+                    return false;
+                }
+                if (script_host.get_global_number("device_script_ok") != 42.0 ||
+                    script_host.stack_top() != 0) {
+                    message = "script result or stack hygiene is wrong";
+                    return false;
+                }
+                return true;
+            });
+
+            record("32_portable_invalid_path", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) {
+                    message = "script host did not initialize";
+                    return false;
+                }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                const auto result = loader.load("escape", "../outside.lua");
+                if (result.ok) {
+                    message = "path traversal was accepted";
+                    return false;
+                }
+                return true;
+            });
+
+            record("33_portable_unload_reload", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) {
+                    message = "script host did not initialize";
+                    return false;
+                }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                if (!fs.write_file("reload.lua", "reload_ok = 1\n").ok ||
+                    !loader.load("reload", "reload.lua").ok) {
+                    message = "initial load failed";
+                    return false;
+                }
+                if (!loader.unload("reload").ok) {
+                    message = "unload failed";
+                    return false;
+                }
+                if (loader.is_active("reload")) {
+                    message = "unloaded script still active";
+                    return false;
+                }
+                if (!loader.load("reload", "reload.lua").ok ||
+                    !loader.reload("reload").ok) {
+                    message = "reload failed: " + loader.last_error();
+                    return false;
+                }
+                return script_host.stack_top() == 0;
+            });
+
+            record("34_portable_disabled_libs", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) {
+                    message = "script host did not initialize";
+                    return false;
+                }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                if (!fs.write_file("no_libs_device.lua",
+                        "assert(io == nil and os == nil and debug == nil and bit == nil)\n"
+                        "device_no_libs = 1\n").ok) {
+                    message = "cannot write no-libs script";
+                    return false;
+                }
+                if (!loader.load("no_libs_device", "no_libs_device.lua").ok) {
+                    message = "no-libs script failed: " + loader.last_error();
+                    return false;
+                }
+                return script_host.get_global_number("device_no_libs") == 1.0;
+            });
         }
     }
 

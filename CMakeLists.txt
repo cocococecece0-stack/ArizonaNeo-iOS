@@ -26,7 +26,10 @@ if(ARIZONA_NEO_WITH_LUAJIT)
     if(NOT LUAJIT_INCLUDE_DIR OR NOT LUAJIT_LIBRARY)
         message(FATAL_ERROR "LuaJIT not found. Set LUAJIT_INCLUDE_DIR and LUAJIT_LIBRARY (or LUAJIT_ROOT).")
     endif()
-    set(LUAJIT_SOURCES src/runtime/lua_jit_host.cpp)
+    set(LUAJIT_SOURCES
+        src/runtime/lua_jit_host.cpp
+        src/runtime/portable_script_loader.cpp
+    )
 endif()
 
 add_library(arizona_neo_core STATIC
