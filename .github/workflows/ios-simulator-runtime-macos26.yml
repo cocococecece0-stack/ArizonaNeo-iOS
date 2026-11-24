@@ -88,11 +88,26 @@ jobs:
           xcrun simctl list devices "$SIM_UDID" | tee ci/simulator-device.txt
           # Device JSON has no architecture field: verify arm64 inside the
           # booted Simulator itself instead of guessing from metadata.
-          SIM_ARCH="$(xcrun simctl spawn "$SIM_UDID" uname -m 2>/dev/null || true)"
+          # A freshly booted iOS 26 Simulator may still be finishing data
+          # migration, so first perform a lightweight spawn readiness probe.
+          READY=0
+          for attempt in 1 2 3; do
+            if xcrun simctl spawn "$SIM_UDID" /bin/echo simulator-ready 2>/dev/null | grep -q 'simulator-ready'; then
+              READY=1
+              break
+            fi
+            sleep 15
+          done
+          if [[ "$READY" -ne 1 ]]; then
+            echo "BLOCKED: Simulator did not become ready for spawn after 3 attempts" >&2
+            xcrun simctl list devices "$SIM_UDID" >&2
+            exit 2
+          fi
+          SIM_ARCH="$(xcrun simctl spawn "$SIM_UDID" /usr/bin/uname -m 2>/dev/null || true)"
           echo "simulator architecture: $SIM_ARCH"
           echo "- Simulator architecture: $SIM_ARCH" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$SIM_ARCH" != "arm64" ]]; then
-            echo "BLOCKED: selected Simulator is not arm64 ($SIM_ARCH)" >&2
+            echo "BLOCKED: selected Simulator is not arm64 ('$SIM_ARCH')" >&2
             exit 2
           fi
 
