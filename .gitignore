@@ -11,5 +11,8 @@ DerivedData/
 *.key
 .env
 *.log
+.stage623-link-test/
+.luajit-stage621/
+.ios-luajit-validation/
 .luajit-ios-build/
 /ci/
