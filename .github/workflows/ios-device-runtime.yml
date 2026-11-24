@@ -86,7 +86,11 @@ jobs:
             test -f "ci/luajit-src/src/$h" || { echo "ERROR: missing header $h" >&2; exit 1; }
           done
           EXPECTED_SYM="$(awk '/^#define LUAJIT_VERSION_SYM/ {print $3}' ci/luajit-src/src/luajit.h)"
-          nm -g ci/luajit/libluajit.a | grep -q "$EXPECTED_SYM"
+          [[ -n "$EXPECTED_SYM" ]] || { echo "ERROR: LUAJIT_VERSION_SYM not found in generated luajit.h" >&2; exit 1; }
+          # Never pipe nm into grep -q under pipefail: grep closes the pipe early
+          # and LLVM nm dies with SIGPIPE. Materialize the full output first.
+          nm -g ci/luajit/libluajit.a > "$RUNNER_TEMP/luajit-symbols.txt"
+          grep -Fq "$EXPECTED_SYM" "$RUNNER_TEMP/luajit-symbols.txt"
           echo "LUAJIT_INCLUDE_DIR=$GITHUB_WORKSPACE/ci/luajit-src/src" >> "$GITHUB_ENV"
           echo "LUAJIT_LIB=$GITHUB_WORKSPACE/ci/luajit/libluajit.a" >> "$GITHUB_ENV"
           echo "CORE_LIB=$GITHUB_WORKSPACE/ci/core/build-ios/libarizona_neo_core.a" >> "$GITHUB_ENV"
