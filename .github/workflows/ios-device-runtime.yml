@@ -1,0 +1,167 @@
+name: iOS Device Runtime Test Host (unsigned IPA)
+
+# Builds a REAL iOS arm64 device app that exercises the published LuaJITHost
+# on a physical iPhone via ESign. This workflow only builds/packages; it does
+# NOT claim device runtime success. Manual dispatch only.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  LUAJIT_COMMIT: '96f7b297326e9fd454b7186c6858b2773f94a0dc'
+  LUAJIT_ARTIFACT_ID: '14855513382'
+  LUAJIT_ZIP_SHA: '58ff22c6ebe8019ff0f11679e81df93c4a1052605daefdb9fae935d5d724f595'
+  LUAJIT_LIB_SHA: '6b3c087831456891cf572f56aa9127b9539507b32c1552582eaf87c6deb31343'
+  CORE_ARTIFACT_ID: '14900956673'
+  CORE_ZIP_SHA: '46f62ed4b08a1b953f3f1234055a9e1f6cc79b5031e76b6b430585a6fa0ca3f9'
+  CORE_LIB_SHA: 'b33ead8a4ed82526eb4f56be4976d4e9533d4c39f114dde47a00ecd69784df74'
+
+jobs:
+  build-device-test-host:
+    name: iOS arm64 device test host (unsigned IPA)
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Record Apple toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p ci
+          {
+            echo "uname -m: $(uname -m)"
+            sw_vers
+            echo "xcode-select: $(xcode-select -p)"
+            xcodebuild -version
+            echo "iphoneos SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+            echo "iphoneos SDK path: $(xcrun --sdk iphoneos --show-sdk-path)"
+            clang --version | head -1
+            cmake --version | head -1
+          } 2>&1 | tee ci/toolchain-report.txt
+          [[ "$(uname -m)" == "arm64" ]] || { echo "ERROR: expected arm64 runner" >&2; exit 1; }
+          cat ci/toolchain-report.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download and verify pinned device artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci/luajit ci/core
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${LUAJIT_ARTIFACT_ID}/zip" \
+            > ci/luajit/artifact.zip
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${CORE_ARTIFACT_ID}/zip" \
+            > ci/core/artifact.zip
+          echo "$(shasum -a 256 ci/luajit/artifact.zip | awk '{print $1}')  luajit zip" > ci/artifact-sha.txt
+          echo "$(shasum -a 256 ci/core/artifact.zip | awk '{print $1}')  core zip" >> ci/artifact-sha.txt
+          grep -q "^${LUAJIT_ZIP_SHA}  luajit zip$" ci/artifact-sha.txt
+          grep -q "^${CORE_ZIP_SHA}  core zip$" ci/artifact-sha.txt
+          unzip -o -q ci/luajit/artifact.zip -d ci/luajit
+          unzip -o -q ci/core/artifact.zip -d ci/core
+          test -f ci/luajit/libluajit.a
+          test -f ci/core/build-ios/libarizona_neo_core.a
+          echo "$(shasum -a 256 ci/luajit/libluajit.a | awk '{print $1}')  libluajit.a" >> ci/artifact-sha.txt
+          echo "$(shasum -a 256 ci/core/build-ios/libarizona_neo_core.a | awk '{print $1}')  libarizona_neo_core.a" >> ci/artifact-sha.txt
+          grep -q "^${LUAJIT_LIB_SHA}  libluajit.a$" ci/artifact-sha.txt
+          grep -q "^${CORE_LIB_SHA}  libarizona_neo_core.a$" ci/artifact-sha.txt
+          cat ci/artifact-sha.txt
+
+      - name: Prepare LuaJIT headers from pinned commit
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/LuaJIT/LuaJIT.git ci/luajit-src
+          git -C ci/luajit-src checkout --quiet "$LUAJIT_COMMIT"
+          ACTUAL="$(git -C ci/luajit-src rev-parse HEAD)"
+          [[ "$ACTUAL" == "$LUAJIT_COMMIT" ]] || { echo "ERROR: LuaJIT commit mismatch: $ACTUAL" >&2; exit 1; }
+          export MACOSX_DEPLOYMENT_TARGET=11.0
+          make -C ci/luajit-src/src -j2 luajit.h HOST_CC=clang
+          for h in lua.h luaconf.h lauxlib.h lualib.h luajit.h; do
+            test -f "ci/luajit-src/src/$h" || { echo "ERROR: missing header $h" >&2; exit 1; }
+          done
+          EXPECTED_SYM="$(awk '/^#define LUAJIT_VERSION_SYM/ {print $3}' ci/luajit-src/src/luajit.h)"
+          nm -g ci/luajit/libluajit.a | grep -q "$EXPECTED_SYM"
+          echo "LUAJIT_INCLUDE_DIR=$GITHUB_WORKSPACE/ci/luajit-src/src" >> "$GITHUB_ENV"
+          echo "LUAJIT_LIB=$GITHUB_WORKSPACE/ci/luajit/libluajit.a" >> "$GITHUB_ENV"
+          echo "CORE_LIB=$GITHUB_WORKSPACE/ci/core/build-ios/libarizona_neo_core.a" >> "$GITHUB_ENV"
+
+      - name: Build unsigned iOS device test app
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project tests/ios_device/DeviceTestHost.xcodeproj \
+            -scheme DeviceTestHost \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/ci/derived" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CORE_LIB="$CORE_LIB" \
+            LUAJIT_LIB="$LUAJIT_LIB" \
+            LUAJIT_INCLUDE_DIR="$LUAJIT_INCLUDE_DIR" 2>&1 | tee ci/xcodebuild.log
+          APPS="$(find "$PWD/ci/derived/Build/Products" -type d -name DeviceTestHost.app)"
+          COUNT="$(printf '%s\n' "$APPS" | grep -c . || true)"
+          [[ "$COUNT" -eq 1 ]] || { echo "ERROR: expected one .app, found $COUNT" >&2; echo "$APPS" >&2; exit 1; }
+          echo "DEVICE_APP=$APPS" >> "$GITHUB_ENV"
+          echo "DEVICE_APP_BUILT"
+
+      - name: Verify device Mach-O, platform and symbols
+        run: |
+          set -euo pipefail
+          BIN="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$DEVICE_APP/Info.plist")"
+          DEVICE_BIN="$DEVICE_APP/$BIN"
+          test -f "$DEVICE_BIN"
+          file "$DEVICE_BIN" | tee ci/device-binary-info.txt
+          file "$DEVICE_BIN" | grep -q 'Mach-O'
+          otool -hv "$DEVICE_BIN" | tee -a ci/device-binary-info.txt | grep -q 'ARM64'
+          lipo -info "$DEVICE_BIN" | tee -a ci/device-binary-info.txt
+          otool -l "$DEVICE_BIN" | grep -A4 'cmd LC_BUILD_VERSION' > ci/device-build-version.txt
+          cat ci/device-build-version.txt
+          grep -q 'platform 2' ci/device-build-version.txt   # IOS device, not simulator (7)
+          grep -q 'minos 15.0' ci/device-build-version.txt
+          nm -g "$DEVICE_BIN" > ci/device-symbols.txt
+          grep -q 'LuaJITHost' ci/device-symbols.txt
+          grep -q 'luaL_newstate' ci/device-symbols.txt
+          echo "DEVICE_BINARY_OK"
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          bash scripts/package_unsigned_ipa.sh \
+            "$DEVICE_APP" \
+            "$PWD/ci/ArizonaNeoDeviceTest-unsigned.ipa" \
+            "$PWD/ci/ipa-sha256.txt" 2>&1 | tee ci/package.log
+          test -f ci/ArizonaNeoDeviceTest-unsigned.ipa
+          shasum -a 256 \
+            ci/ArizonaNeoDeviceTest-unsigned.ipa \
+            ci/luajit/libluajit.a \
+            ci/core/build-ios/libarizona_neo_core.a \
+            ci/toolchain-report.txt \
+            ci/artifact-sha.txt \
+            ci/device-binary-info.txt \
+            ci/device-build-version.txt \
+            ci/device-symbols.txt > ci/sha256-manifest.txt
+          cat ci/sha256-manifest.txt
+          echo "- iOS device build: PASS (unsigned IPA; device runtime NOT executed)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload IPA and diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-device-luajit-test-host
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            ci/ArizonaNeoDeviceTest-unsigned.ipa
+            ci/ipa-sha256.txt
+            ci/sha256-manifest.txt
+            ci/toolchain-report.txt
+            ci/artifact-sha.txt
+            ci/xcodebuild.log
+            ci/package.log
+            ci/device-binary-info.txt
+            ci/device-build-version.txt
+            ci/device-symbols.txt

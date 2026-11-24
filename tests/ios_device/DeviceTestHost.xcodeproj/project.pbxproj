@@ -1,0 +1,262 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B10000000000000000000001 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* main.mm */; };
+		B10000000000000000000002 /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* AppDelegate.mm */; };
+		B10000000000000000000003 /* DeviceRuntimeTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000004 /* DeviceRuntimeTests.mm */; };
+		B10000000000000000000004 /* ReportGenerator.mm in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000006 /* ReportGenerator.mm */; };
+		B10000000000000000000005 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F10000000000000000000009 /* UIKit.framework */; };
+		B10000000000000000000006 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000A /* Foundation.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		F10000000000000000000001 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		F10000000000000000000002 /* AppDelegate.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = AppDelegate.mm; sourceTree = "<group>"; };
+		F10000000000000000000003 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
+		F10000000000000000000004 /* DeviceRuntimeTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = DeviceRuntimeTests.mm; sourceTree = "<group>"; };
+		F10000000000000000000005 /* DeviceRuntimeTests.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DeviceRuntimeTests.h; sourceTree = "<group>"; };
+		F10000000000000000000006 /* ReportGenerator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ReportGenerator.mm; sourceTree = "<group>"; };
+		F10000000000000000000007 /* ReportGenerator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ReportGenerator.h; sourceTree = "<group>"; };
+		F10000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F10000000000000000000009 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		F1000000000000000000000A /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		F1000000000000000000000B /* DeviceTestHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DeviceTestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		P10000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000005 /* UIKit.framework in Frameworks */,
+				B10000000000000000000006 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		G10000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				F10000000000000000000001 /* main.mm */,
+				F10000000000000000000002 /* AppDelegate.mm */,
+				F10000000000000000000003 /* AppDelegate.h */,
+				F10000000000000000000004 /* DeviceRuntimeTests.mm */,
+				F10000000000000000000005 /* DeviceRuntimeTests.h */,
+				F10000000000000000000006 /* ReportGenerator.mm */,
+				F10000000000000000000007 /* ReportGenerator.h */,
+				F10000000000000000000008 /* Info.plist */,
+				G10000000000000000000002 /* Frameworks */,
+				G10000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		G10000000000000000000002 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				F10000000000000000000009 /* UIKit.framework */,
+				F1000000000000000000000A /* Foundation.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		G10000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F1000000000000000000000B /* DeviceTestHost.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		T10000000000000000000001 /* DeviceTestHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C10000000000000000000003 /* Build configuration list for PBXNativeTarget "DeviceTestHost" */;
+			buildPhases = (
+				P10000000000000000000001 /* Sources */,
+				P10000000000000000000002 /* Frameworks */,
+				P10000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DeviceTestHost;
+			productName = DeviceTestHost;
+			productReference = F1000000000000000000000B /* DeviceTestHost.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		R10000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					T10000000000000000000001 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+				};
+			};
+			buildConfigurationList = C10000000000000000000001 /* Build configuration list for PBXProject "DeviceTestHost" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = G10000000000000000000001;
+			productRefGroup = G10000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				T10000000000000000000001 /* DeviceTestHost */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		P10000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		P10000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000001 /* main.mm in Sources */,
+				B10000000000000000000002 /* AppDelegate.mm in Sources */,
+				B10000000000000000000003 /* DeviceRuntimeTests.mm in Sources */,
+				B10000000000000000000004 /* ReportGenerator.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		C10000000000000000000002 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				ENABLE_BITCODE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				ONLY_ACTIVE_ARCH = NO;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		C10000000000000000000004 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				FRAMEWORK_SEARCH_PATHS = "$(SDKROOT)/System/Library/Frameworks";
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../include",
+					"$(LUAJIT_INCLUDE_DIR)",
+				);
+				INFOPLIST_FILE = Info.plist;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(CORE_LIB)",
+					"$(LUAJIT_LIB)",
+					"-lm",
+					"-ObjC",
+					"-lc++",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.arizonaneo.devicetest";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		C10000000000000000000005 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				ENABLE_BITCODE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				ONLY_ACTIVE_ARCH = NO;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		C10000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				FRAMEWORK_SEARCH_PATHS = "$(SDKROOT)/System/Library/Frameworks";
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../include",
+					"$(LUAJIT_INCLUDE_DIR)",
+				);
+				INFOPLIST_FILE = Info.plist;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(CORE_LIB)",
+					"$(LUAJIT_LIB)",
+					"-lm",
+					"-ObjC",
+					"-lc++",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.arizonaneo.devicetest";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C10000000000000000000001 /* Build configuration list for PBXProject "DeviceTestHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C10000000000000000000002 /* Debug */,
+				C10000000000000000000005 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C10000000000000000000003 /* Build configuration list for PBXNativeTarget "DeviceTestHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C10000000000000000000004 /* Debug */,
+				C10000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = R10000000000000000000001 /* Project object */;
+}
