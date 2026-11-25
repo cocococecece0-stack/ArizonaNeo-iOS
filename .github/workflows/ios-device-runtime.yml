@@ -238,3 +238,8 @@ jobs:
             ci/device-binary-info.txt
             ci/device-build-version.txt
             ci/device-symbols.txt
+            ci/build-core/libNeoLoaderBootstrap.dylib
+            ci/bootstrap-binary-info.txt
+            ci/bootstrap-build-version.txt
+            ci/bootstrap-symbols.txt
+            ci/bootstrap-sha256.txt
