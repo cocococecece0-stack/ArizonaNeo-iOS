@@ -58,8 +58,7 @@ void diagnostic_log(const char* event) {
 #endif
 }
 
-extern "C" __attribute__((constructor)) __attribute__((used))
-__attribute__((visibility("default")))
+extern "C" __attribute__((visibility("default")))
 void neo_bootstrap_library_loaded() {
     // Only record the fact that dyld executed this library's initializer.
     // No LuaJIT, Core or host objects are created here.
@@ -67,6 +66,15 @@ void neo_bootstrap_library_loaded() {
     write_diagnostic("DYLIB_LOADED", "constructor");
     diagnostic_log("DYLIB_LOADED");
 }
+
+// Apple's linker can dead-strip a plain constructor from a dylib. Forcing a
+// function pointer into __mod_init_func guarantees dyld runs the initializer.
+#if defined(__APPLE__)
+__attribute__((used, section("__DATA,__mod_init_func")))
+#else
+__attribute__((used, section(".init_array")))
+#endif
+static void (*const neo_bootstrap_mod_init)(void) = neo_bootstrap_library_loaded;
 
 const char* state_name(neo_bootstrap_state_t state) {
     switch (state) {
