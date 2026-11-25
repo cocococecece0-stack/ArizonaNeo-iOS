@@ -80,6 +80,24 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR APPLE)
         -Wl,-u,_neo_bootstrap_library_loaded)
 endif()
 
+# iOS-only host adapter for the system Documents picker. It is deliberately
+# separate from arizona_neo_core so the portable core stays UIKit-free.
+if(APPLE)
+    add_library(neo_ios_documents_host STATIC
+        ios/host/ios_documents_host.mm
+    )
+    target_include_directories(neo_ios_documents_host PUBLIC
+        ios/host
+        include
+    )
+    target_link_libraries(neo_ios_documents_host PRIVATE
+        "-framework Foundation"
+        "-framework UIKit"
+        "-framework UniformTypeIdentifiers"
+    )
+    target_compile_features(neo_ios_documents_host PUBLIC cxx_std_17)
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     add_subdirectory(tests)
