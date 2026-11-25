@@ -57,7 +57,7 @@
 4. Требуется реальный device report с marker/os_log.
 
 ## Git
-Branch `stage-7.1.7-device-validation`; `main` не изменён. Commit: `a9af8f7` и последующие stage 13.1 fixes (cmaconstructor/section/audit); HEAD будет обновлён после финального коммита отчёта.
+Branch `stage-7.1.7-device-validation`; `main` не изменён. Commits stage 13.1: `b0feeaa`, `6db0089`, `9173a00`, `4f8ec24`, `097b2fc`, `a9af8f7`, `698e627`; HEAD `698e627`.
 
 ## Вердикт
 **READY FOR DEVICE DIAGNOSTICS** по части DYLIB_LOADED (есть constructor + marker + os_log и unsigned IPA, подготовленный к подписи для ESign). **READY WITH CONDITIONS** для BOOTSTRAP_INITIALIZED/RUNTIME_READY: нужны in-process caller и реальный native interface. PACKAGING_PASS не равен DEVICE_LOAD_PASS.
