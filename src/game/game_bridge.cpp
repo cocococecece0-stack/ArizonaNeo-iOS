@@ -109,6 +109,13 @@ bool GameBridge::capability_available(GameCapability capability) const {
     return capabilities_.available(capability);
 }
 
+bool GameBridge::confirm_capability(GameCapability capability,
+                                    const std::string& evidence) {
+    if (!ready()) return false;
+    capabilities_.set(capability, CapabilityStatus::Available, evidence);
+    return true;
+}
+
 std::string GameBridge::lifecycle_state() const {
     return interface_ != nullptr ? interface_->lifecycle_state() : std::string("unavailable");
 }

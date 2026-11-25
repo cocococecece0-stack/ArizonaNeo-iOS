@@ -39,6 +39,11 @@ public:
 
     const GameCapabilities& capabilities() const noexcept { return capabilities_; }
     bool capability_available(GameCapability capability) const;
+
+    // Marks a capability Available only when an attached adapter is ready.
+    // This is the single place where PendingConfirmedInterface may be promoted.
+    bool confirm_capability(GameCapability capability, const std::string& evidence);
+
     std::string lifecycle_state() const;
 
     // Events are published under this EventBus name. Payload is text-only.

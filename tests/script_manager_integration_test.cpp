@@ -3,6 +3,8 @@
 #include "arizona_neo/core/scheduler.hpp"
 #include "arizona_neo/runtime/neo_loader_api.hpp"
 #include "arizona_neo/game/game_bridge.hpp"
+#include "arizona_neo/game/graphics_failure_adapter.hpp"
+#include "arizona_neo/game/ios_native_interface.hpp"
 #include "arizona_neo/core/script_manager.hpp"
 #include "arizona_neo/runtime/lua_jit_host.hpp"
 #include "arizona_neo/runtime/portable_script_loader.hpp"
@@ -64,6 +66,19 @@ public:
     std::string lifecycle_state() const override { return "running"; }
     std::vector<arizona_neo::game::GameEvent> events;
 };
+
+void* native_fake_context = nullptr;
+void (*native_fake_handler)(void*) = nullptr;
+
+void native_fake_set_handler(void* context, void (*handler)(void*)) {
+    native_fake_context = context;
+    native_fake_handler = handler;
+}
+void native_fake_notify() {
+    if (native_fake_handler != nullptr && native_fake_context != nullptr) {
+        native_fake_handler(native_fake_context);
+    }
+}
 
 } // namespace
 
@@ -338,6 +353,37 @@ int main() {
         CHECK(game_events == 1, "EventBus received game event from Lua-triggered pump");
         CHECK(bus.unsubscribe(game_token), "game test subscription removed");
         api.set_game_bridge(&game_bridge);
+
+        // Confirmed native interface adapter (graphics failure callback).
+        arizona_neo::game::IosGraphicsFailureInterface native_iface(&native_fake_set_handler);
+        arizona_neo::game::GraphicsFailureAdapter native_adapter(native_iface);
+        CHECK(native_adapter.ready(), "native adapter registered via confirmed ABI");
+        arizona_neo::game::GameBridge native_bridge(bus);
+        native_bridge.attach(&native_adapter);
+        CHECK(native_bridge.confirm_capability(
+                  arizona_neo::game::GameCapability::Events,
+                  "confirmed _game_set_graphics_failure_handler ABI"),
+              "native events capability promoted after attach");
+        api.set_game_bridge(&native_bridge);
+
+        CHECK(api_host.execute_detailed(
+            "neo_native_events = 0; "
+            "neo_event_subscribe('game.event', function() "
+            "neo_native_events = neo_native_events + 1 end); "
+            "neo_native_ready = neo_game_ready() and 1 or 0", "verify_native_ready").status ==
+            arizona_neo::runtime::LuaExecutionStatus::Success, "native readiness executes");
+        CHECK(api_host.get_global_number("neo_native_ready") == 1.0,
+              "Lua sees confirmed native interface as ready");
+
+        native_fake_notify();
+        CHECK(api_host.execute_detailed(
+            "neo_native_pump = neo_game_pump()", "verify_native_pump").status ==
+            arizona_neo::runtime::LuaExecutionStatus::Success, "native pump executes");
+        CHECK(api_host.get_global_number("neo_native_events") == 1.0,
+              "real native callback reached Lua through EventBus");
+
+        api.set_game_bridge(&game_bridge);
+        native_bridge.detach();
 
         CHECK(api_host.stack_top() == 0, "stack clean after portable API checks");
     }

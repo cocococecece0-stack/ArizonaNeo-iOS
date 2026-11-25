@@ -1,3 +1,8 @@
+add_executable(native_interface_test native_interface_test.cpp)
+target_link_libraries(native_interface_test PRIVATE arizona_neo_core)
+target_compile_features(native_interface_test PRIVATE cxx_std_17)
+add_test(NAME native_interface_test COMMAND native_interface_test)
+
 add_executable(game_bridge_test game_bridge_test.cpp)
 target_link_libraries(game_bridge_test PRIVATE arizona_neo_core)
 target_compile_features(game_bridge_test PRIVATE cxx_std_17)
