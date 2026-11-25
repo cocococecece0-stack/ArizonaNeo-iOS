@@ -153,7 +153,8 @@ int main() {
     // Portable NeoLoader API layer: metadata, EventBus, Scheduler, sandbox fs.
     {
         const char* module_names[] = {"sha256", "base64", "binaryheap", "moonloader",
-                                      "vector3d", "matrix3x3", "dkjson", "encoding", "inicfg"};
+                                      "vector3d", "matrix3x3", "dkjson", "encoding", "inicfg",
+                                      "md5", "basexx", "bitex", "vkeys", "timerwheel", "jsoncfg"};
         SandboxedFilesystem api_fs(root, true);
         for (const char* name : module_names) {
             std::ifstream file(std::string("scripts/neo/modules/") + name + ".lua", std::ios::binary);
@@ -193,6 +194,7 @@ int main() {
         PortableScriptRuntime api_runtime(api_loader);
         ScriptManager api_manager;
         api_manager.set_runtime(&api_runtime);
+        api.set_script_manager(&api_manager);
 
         for (const char* name : module_names) {
             ScriptMetadata meta;
@@ -246,6 +248,46 @@ int main() {
             "verify_cfg").status == arizona_neo::runtime::LuaExecutionStatus::Success,
             "config marker executes");
         CHECK(api_host.get_global_number("neo_cfg_marker") == 1.0, "sandboxed inicfg works");
+
+        CHECK(api_host.execute_detailed(
+            "neo_clock_marker = (type(os.clock()) == 'number' and type(os.time()) == 'number') and 1 or 0",
+            "verify_clock").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "restricted os clock executes");
+        CHECK(api_host.get_global_number("neo_clock_marker") == 1.0, "restricted os API works");
+
+        CHECK(api_host.execute_detailed(
+            "neo_manager_marker = (neo_active_scripts() >= 1 and "
+            "neo_script_state('AutoFlip') == 'Loaded') and 1 or 0",
+            "verify_manager").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "script lifecycle query executes");
+        CHECK(api_host.get_global_number("neo_manager_marker") == 1.0, "ScriptManager lifecycle visible in Lua");
+
+        CHECK(api_host.execute_detailed(
+            "local m = require('md5'); neo_md5_marker = "
+            "(m.sumhexa('abc') == '900150983cd24fb0d6963f7d28e17f72') and 1 or 0",
+            "verify_md5").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "md5 verification executes");
+        CHECK(api_host.get_global_number("neo_md5_marker") == 1.0, "original md5 module works");
+
+        CHECK(api_host.execute_detailed(
+            "local b = require('basexx'); neo_basexx_marker = (b.to_base64('abc') == 'YWJj') and 1 or 0",
+            "verify_basexx").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "basexx verification executes");
+        CHECK(api_host.get_global_number("neo_basexx_marker") == 1.0, "original basexx module works");
+
+        CHECK(api_host.execute_detailed(
+            "local bx = require('bitex'); neo_bitex_marker = (type(bx.bextract) == 'function') and 1 or 0",
+            "verify_bitex").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "bitex verification executes");
+        CHECK(api_host.get_global_number("neo_bitex_marker") == 1.0, "built-in bit module resolves via require");
+
+        CHECK(api_host.execute_detailed(
+            "local jc = require('jsoncfg'); jc.save({x = 1}, 'test.json'); "
+            "local d = jc.load({}, 'test.json'); neo_json_marker = (d.x == 1) and 1 or 0",
+            "verify_jsoncfg").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "jsoncfg verification executes");
+        CHECK(api_host.get_global_number("neo_json_marker") == 1.0, "portable jsoncfg works");
+
         CHECK(api_host.stack_top() == 0, "stack clean after portable API checks");
     }
 

@@ -540,6 +540,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
             blocked("43_neo_script_execute", "Documents directory unavailable");
             blocked("44_neo_multi_module", "Documents directory unavailable");
             blocked("45_neo_portable_api", "Documents directory unavailable");
+            blocked("46_neo_compat_expansion", "Documents directory unavailable");
         } else {
             const std::filesystem::path root([[documents stringByAppendingPathComponent:
                                                @"ArizonaNeoDeviceTest/scripts"] UTF8String]);
@@ -950,6 +951,66 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 if (fs_check.status != arizona_neo::runtime::LuaExecutionStatus::Success ||
                     script_host.get_global_number("neo_cfg_marker") != 1.0) {
                     message = "sandboxed config failed"; return false;
+                }
+                return script_host.stack_top() == 0;
+            });
+
+            // Expanded compatibility: additional original modules + restricted os + lifecycle.
+            record("46_neo_compat_expansion", [&](std::string &message) -> bool {
+                arizona_neo::runtime::LuaLibraryPolicy policy;
+                policy.bit = true;
+                LuaJITHost script_host(policy);
+                script_host.set_module_source_reader([](const std::string& name, std::string& out) -> bool {
+                    return neo_module_source(name, out);
+                });
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                for (const auto& entry : NEO_MODULES) {
+                    if (!fs.write_file(std::string("modules/") + entry.name + ".lua", entry.source).ok) {
+                        message = "write module failed"; return false;
+                    }
+                }
+                if (!fs.write_file("scripts/AutoFlip.lua", NEO_AUTOFLIP_SCRIPT).ok) {
+                    message = "write AutoFlip failed"; return false;
+                }
+                arizona_neo::core::EventBus bus;
+                arizona_neo::core::Scheduler scheduler;
+                arizona_neo::runtime::NeoLoaderAPI api(script_host, bus, scheduler, fs);
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                api.set_script_manager(&manager);
+                if (!api.install()) { message = "api install failed"; return false; }
+                for (const auto& entry : NEO_MODULES) {
+                    ScriptMetadata meta;
+                    meta.id = std::string("exp_") + entry.name;
+                    meta.path = std::string("modules/") + entry.name + ".lua";
+                    if (!manager.register_script(meta).ok || !manager.load(meta.id).ok) {
+                        message = std::string("module load failed: ") + entry.name;
+                        return false;
+                    }
+                }
+                ScriptMetadata auto_meta;
+                auto_meta.id = "AutoFlip";
+                auto_meta.path = "scripts/AutoFlip.lua";
+                if (!manager.register_script(auto_meta).ok || !manager.load("AutoFlip").ok) {
+                    message = "AutoFlip load failed"; return false;
+                }
+                const auto checks = script_host.execute_detailed(
+                    "local m = require('md5'); local b = require('basexx'); "
+                    "local bx = require('bitex'); local jc = require('jsoncfg'); "
+                    "jc.save({x = 1}, 'expansion.json'); local d = jc.load({}, 'expansion.json'); "
+                    "neo_expand_marker = ("
+                    "m.sumhexa('abc') == '900150983cd24fb0d6963f7d28e17f72' and "
+                    "b.to_base64('abc') == 'YWJj' and type(bx.bextract) == 'function' and "
+                    "d.x == 1 and type(os.clock()) == 'number' and "
+                    "neo_active_scripts() >= 1 and neo_script_state('AutoFlip') == 'Loaded'"
+                    ") and 1 or 0", "verify_expansion");
+                if (checks.status != arizona_neo::runtime::LuaExecutionStatus::Success ||
+                    script_host.get_global_number("neo_expand_marker") != 1.0) {
+                    message = "expanded compatibility check failed: " + script_host.last_error();
+                    return false;
                 }
                 return script_host.stack_top() == 0;
             });

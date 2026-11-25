@@ -212,6 +212,42 @@ int NeoLoaderAPI::l_fs_exists(lua_State* L) {
     return 1;
 }
 
+int NeoLoaderAPI::l_os_clock(lua_State* L) {
+    static const auto start = std::chrono::steady_clock::now();
+    const auto elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - start).count();
+    lua_pushnumber(L, static_cast<lua_Number>(elapsed));
+    return 1;
+}
+
+int NeoLoaderAPI::l_os_time(lua_State* L) {
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    lua_pushnumber(L, static_cast<lua_Number>(
+        std::chrono::duration_cast<std::chrono::seconds>(now).count()));
+    return 1;
+}
+
+int NeoLoaderAPI::l_script_state(lua_State* L) {
+    const char* id = arg_string(L, 1);
+    if (manager_ == nullptr || id == nullptr) {
+        lua_pushnil(L);
+        return 1;
+    }
+    const auto info = manager_->get(id);
+    if (!info.ok) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushstring(L, arizona_neo::core::to_string(info.value.state));
+    return 1;
+}
+
+int NeoLoaderAPI::l_active_scripts(lua_State* L) {
+    lua_pushnumber(L, manager_ != nullptr
+        ? static_cast<lua_Number>(manager_->active_count()) : 0);
+    return 1;
+}
+
 bool NeoLoaderAPI::install() {
     if (installed_ || host_.state() == nullptr) return false;
 
@@ -231,6 +267,12 @@ bool NeoLoaderAPI::install() {
     host_.register_function("neo_fs_read", [this](lua_State* L) { return l_fs_read(L); });
     host_.register_function("neo_fs_write", [this](lua_State* L) { return l_fs_write(L); });
     host_.register_function("neo_fs_exists", [this](lua_State* L) { return l_fs_exists(L); });
+
+    // Restricted os subset: no execute/remove/rename, no environment access.
+    host_.register_function("os.clock", [this](lua_State* L) { return l_os_clock(L); });
+    host_.register_function("os.time", [this](lua_State* L) { return l_os_time(L); });
+    host_.register_function("neo_script_state", [this](lua_State* L) { return l_script_state(L); });
+    host_.register_function("neo_active_scripts", [this](lua_State* L) { return l_active_scripts(L); });
 
     installed_ = true;
     return true;

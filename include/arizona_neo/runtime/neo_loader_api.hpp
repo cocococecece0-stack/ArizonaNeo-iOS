@@ -2,6 +2,7 @@
 
 #include "arizona_neo/core/event_bus.hpp"
 #include "arizona_neo/core/filesystem.hpp"
+#include "arizona_neo/core/script_manager.hpp"
 #include "arizona_neo/core/scheduler.hpp"
 #include "arizona_neo/runtime/lua_jit_host.hpp"
 
@@ -44,6 +45,9 @@ public:
 
     const ScriptMeta& script_meta() const noexcept { return meta_; }
 
+    // Optional non-owning ScriptManager binding used by the lifecycle queries.
+    void set_script_manager(core::ScriptManager* manager) noexcept { manager_ = manager; }
+
 private:
     int ref_function(int index);
     void call_ref(int ref);
@@ -63,12 +67,17 @@ private:
     int l_fs_read(lua_State* L);
     int l_fs_write(lua_State* L);
     int l_fs_exists(lua_State* L);
+    int l_os_clock(lua_State* L);
+    int l_os_time(lua_State* L);
+    int l_script_state(lua_State* L);
+    int l_active_scripts(lua_State* L);
 
 
     LuaJITHost& host_;
     core::EventBus& bus_;
     core::Scheduler& scheduler_;
     core::SandboxedFilesystem& fs_;
+    core::ScriptManager* manager_ = nullptr;
     ScriptMeta meta_;
     std::vector<int> refs_;
     std::vector<core::EventBus::SubscriptionToken> tokens_;

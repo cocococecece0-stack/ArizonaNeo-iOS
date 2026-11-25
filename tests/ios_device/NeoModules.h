@@ -2257,6 +2257,1119 @@ end
 return inicfg
 
 )NEOMOD_DELIM"},
+    {"md5", R"NEOMOD_DELIM(
+local md5 = {
+  _VERSION     = "md5.lua 1.1.0",
+  _DESCRIPTION = "MD5 computation in Lua (5.1-3, LuaJIT)",
+  _URL         = "https://github.com/kikito/md5.lua",
+  _LICENSE     = [[
+    MIT LICENSE
+
+    Copyright (c) 2013 Enrique García Cota + Adam Baldwin + hanzao + Equi 4 Software
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject to
+    the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+    IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+    CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+    TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+    SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+  ]]
+}
+
+local char, byte, format, rep, sub =
+  string.char, string.byte, string.format, string.rep, string.sub
+local bit_or, bit_and, bit_not, bit_xor, bit_rshift, bit_lshift
+
+local ok, bit = pcall(require, 'bit')
+local ok_ffi, ffi = pcall(require, 'ffi')
+if ok then
+  bit_or, bit_and, bit_not, bit_xor, bit_rshift, bit_lshift = bit.bor, bit.band, bit.bnot, bit.bxor, bit.rshift, bit.lshift
+else
+  ok, bit = pcall(require, 'bit32')
+
+  if ok then
+
+    bit_not = bit.bnot
+
+    local tobit = function(n)
+      return n <= 0x7fffffff and n or -(bit_not(n) + 1)
+    end
+
+    local normalize = function(f)
+      return function(a,b) return tobit(f(tobit(a), tobit(b))) end
+    end
+
+    bit_or, bit_and, bit_xor = normalize(bit.bor), normalize(bit.band), normalize(bit.bxor)
+    bit_rshift, bit_lshift = normalize(bit.rshift), normalize(bit.lshift)
+
+  else
+
+    local function tbl2number(tbl)
+      local result = 0
+      local power = 1
+      for i = 1, #tbl do
+        result = result + tbl[i] * power
+        power = power * 2
+      end
+      return result
+    end
+
+    local function expand(t1, t2)
+      local big, small = t1, t2
+      if(#big < #small) then
+        big, small = small, big
+      end
+
+      for i = #small + 1, #big do
+        small[i] = 0
+      end
+    end
+
+    local to_bits
+
+    bit_not = function(n)
+      local tbl = to_bits(n)
+      local size = math.max(#tbl, 32)
+      for i = 1, size do
+        if(tbl[i] == 1) then
+          tbl[i] = 0
+        else
+          tbl[i] = 1
+        end
+      end
+      return tbl2number(tbl)
+    end
+
+    to_bits = function (n)
+      if(n < 0) then
+
+        return to_bits(bit_not(math.abs(n)) + 1)
+      end
+
+      local tbl = {}
+      local cnt = 1
+      local last
+      while n > 0 do
+        last      = n % 2
+        tbl[cnt]  = last
+        n         = (n-last)/2
+        cnt       = cnt + 1
+      end
+
+      return tbl
+    end
+
+    bit_or = function(m, n)
+      local tbl_m = to_bits(m)
+      local tbl_n = to_bits(n)
+      expand(tbl_m, tbl_n)
+
+      local tbl = {}
+      for i = 1, #tbl_m do
+        if(tbl_m[i]== 0 and tbl_n[i] == 0) then
+          tbl[i] = 0
+        else
+          tbl[i] = 1
+        end
+      end
+
+      return tbl2number(tbl)
+    end
+
+    bit_and = function(m, n)
+      local tbl_m = to_bits(m)
+      local tbl_n = to_bits(n)
+      expand(tbl_m, tbl_n)
+
+      local tbl = {}
+      for i = 1, #tbl_m do
+        if(tbl_m[i]== 0 or tbl_n[i] == 0) then
+          tbl[i] = 0
+        else
+          tbl[i] = 1
+        end
+      end
+
+      return tbl2number(tbl)
+    end
+
+    bit_xor = function(m, n)
+      local tbl_m = to_bits(m)
+      local tbl_n = to_bits(n)
+      expand(tbl_m, tbl_n)
+
+      local tbl = {}
+      for i = 1, #tbl_m do
+        if(tbl_m[i] ~= tbl_n[i]) then
+          tbl[i] = 1
+        else
+          tbl[i] = 0
+        end
+      end
+
+      return tbl2number(tbl)
+    end
+
+    bit_rshift = function(n, bits)
+      local high_bit = 0
+      if(n < 0) then
+
+        n = bit_not(math.abs(n)) + 1
+        high_bit = 0x80000000
+      end
+
+      local floor = math.floor
+
+      for i=1, bits do
+        n = n/2
+        n = bit_or(floor(n), high_bit)
+      end
+      return floor(n)
+    end
+
+    bit_lshift = function(n, bits)
+      if(n < 0) then
+
+        n = bit_not(math.abs(n)) + 1
+      end
+
+      for i=1, bits do
+        n = n*2
+      end
+      return bit_and(n, 0xFFFFFFFF)
+    end
+  end
+end
+
+local lei2str
+
+if ok_ffi then
+  local ct_IntType = ffi.typeof("int[1]")
+  lei2str = function(i) return ffi.string(ct_IntType(i), 4) end
+else
+  lei2str = function (i)
+    local f=function (s) return char( bit_and( bit_rshift(i, s), 255)) end
+    return f(0)..f(8)..f(16)..f(24)
+  end
+end
+
+local function str2bei(s)
+  local v=0
+  for i=1, #s do
+    v = v * 256 + byte(s, i)
+  end
+  return v
+end
+
+local str2lei
+
+if ok_ffi then
+  local ct_constcharptr = ffi.typeof("const char*")
+  local ct_constintptr = ffi.typeof("const int*")
+  str2lei = function(s)
+    local int = ct_constcharptr(s)
+    return ffi.cast(ct_constintptr, int)[0]
+  end
+else
+  str2lei = function(s)
+    local v=0
+    for i = #s,1,-1 do
+      v = v*256 + byte(s, i)
+    end
+    return v
+    end
+end
+
+local function cut_le_str(s)
+  return {
+    str2lei(sub(s, 1, 4)),
+    str2lei(sub(s, 5, 8)),
+    str2lei(sub(s, 9, 12)),
+    str2lei(sub(s, 13, 16)),
+    str2lei(sub(s, 17, 20)),
+    str2lei(sub(s, 21, 24)),
+    str2lei(sub(s, 25, 28)),
+    str2lei(sub(s, 29, 32)),
+    str2lei(sub(s, 33, 36)),
+    str2lei(sub(s, 37, 40)),
+    str2lei(sub(s, 41, 44)),
+    str2lei(sub(s, 45, 48)),
+    str2lei(sub(s, 49, 52)),
+    str2lei(sub(s, 53, 56)),
+    str2lei(sub(s, 57, 60)),
+    str2lei(sub(s, 61, 64)),
+  }
+end
+
+local CONSTS = {
+  0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee,
+  0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+  0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
+  0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+  0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa,
+  0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+  0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
+  0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+  0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c,
+  0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+  0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05,
+  0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+  0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039,
+  0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+  0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1,
+  0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
+  0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476
+}
+
+local f=function (x,y,z) return bit_or(bit_and(x,y),bit_and(-x-1,z)) end
+local g=function (x,y,z) return bit_or(bit_and(x,z),bit_and(y,-z-1)) end
+local h=function (x,y,z) return bit_xor(x,bit_xor(y,z)) end
+local i=function (x,y,z) return bit_xor(y,bit_or(x,-z-1)) end
+local z=function (ff,a,b,c,d,x,s,ac)
+  a=bit_and(a+ff(b,c,d)+x+ac,0xFFFFFFFF)
+
+  return bit_or(bit_lshift(bit_and(a,bit_rshift(0xFFFFFFFF,s)),s),bit_rshift(a,32-s))+b
+end
+
+local function transform(A,B,C,D,X)
+  local a,b,c,d=A,B,C,D
+  local t=CONSTS
+
+  a=z(f,a,b,c,d,X[ 0], 7,t[ 1])
+  d=z(f,d,a,b,c,X[ 1],12,t[ 2])
+  c=z(f,c,d,a,b,X[ 2],17,t[ 3])
+  b=z(f,b,c,d,a,X[ 3],22,t[ 4])
+  a=z(f,a,b,c,d,X[ 4], 7,t[ 5])
+  d=z(f,d,a,b,c,X[ 5],12,t[ 6])
+  c=z(f,c,d,a,b,X[ 6],17,t[ 7])
+  b=z(f,b,c,d,a,X[ 7],22,t[ 8])
+  a=z(f,a,b,c,d,X[ 8], 7,t[ 9])
+  d=z(f,d,a,b,c,X[ 9],12,t[10])
+  c=z(f,c,d,a,b,X[10],17,t[11])
+  b=z(f,b,c,d,a,X[11],22,t[12])
+  a=z(f,a,b,c,d,X[12], 7,t[13])
+  d=z(f,d,a,b,c,X[13],12,t[14])
+  c=z(f,c,d,a,b,X[14],17,t[15])
+  b=z(f,b,c,d,a,X[15],22,t[16])
+
+  a=z(g,a,b,c,d,X[ 1], 5,t[17])
+  d=z(g,d,a,b,c,X[ 6], 9,t[18])
+  c=z(g,c,d,a,b,X[11],14,t[19])
+  b=z(g,b,c,d,a,X[ 0],20,t[20])
+  a=z(g,a,b,c,d,X[ 5], 5,t[21])
+  d=z(g,d,a,b,c,X[10], 9,t[22])
+  c=z(g,c,d,a,b,X[15],14,t[23])
+  b=z(g,b,c,d,a,X[ 4],20,t[24])
+  a=z(g,a,b,c,d,X[ 9], 5,t[25])
+  d=z(g,d,a,b,c,X[14], 9,t[26])
+  c=z(g,c,d,a,b,X[ 3],14,t[27])
+  b=z(g,b,c,d,a,X[ 8],20,t[28])
+  a=z(g,a,b,c,d,X[13], 5,t[29])
+  d=z(g,d,a,b,c,X[ 2], 9,t[30])
+  c=z(g,c,d,a,b,X[ 7],14,t[31])
+  b=z(g,b,c,d,a,X[12],20,t[32])
+
+  a=z(h,a,b,c,d,X[ 5], 4,t[33])
+  d=z(h,d,a,b,c,X[ 8],11,t[34])
+  c=z(h,c,d,a,b,X[11],16,t[35])
+  b=z(h,b,c,d,a,X[14],23,t[36])
+  a=z(h,a,b,c,d,X[ 1], 4,t[37])
+  d=z(h,d,a,b,c,X[ 4],11,t[38])
+  c=z(h,c,d,a,b,X[ 7],16,t[39])
+  b=z(h,b,c,d,a,X[10],23,t[40])
+  a=z(h,a,b,c,d,X[13], 4,t[41])
+  d=z(h,d,a,b,c,X[ 0],11,t[42])
+  c=z(h,c,d,a,b,X[ 3],16,t[43])
+  b=z(h,b,c,d,a,X[ 6],23,t[44])
+  a=z(h,a,b,c,d,X[ 9], 4,t[45])
+  d=z(h,d,a,b,c,X[12],11,t[46])
+  c=z(h,c,d,a,b,X[15],16,t[47])
+  b=z(h,b,c,d,a,X[ 2],23,t[48])
+
+  a=z(i,a,b,c,d,X[ 0], 6,t[49])
+  d=z(i,d,a,b,c,X[ 7],10,t[50])
+  c=z(i,c,d,a,b,X[14],15,t[51])
+  b=z(i,b,c,d,a,X[ 5],21,t[52])
+  a=z(i,a,b,c,d,X[12], 6,t[53])
+  d=z(i,d,a,b,c,X[ 3],10,t[54])
+  c=z(i,c,d,a,b,X[10],15,t[55])
+  b=z(i,b,c,d,a,X[ 1],21,t[56])
+  a=z(i,a,b,c,d,X[ 8], 6,t[57])
+  d=z(i,d,a,b,c,X[15],10,t[58])
+  c=z(i,c,d,a,b,X[ 6],15,t[59])
+  b=z(i,b,c,d,a,X[13],21,t[60])
+  a=z(i,a,b,c,d,X[ 4], 6,t[61])
+  d=z(i,d,a,b,c,X[11],10,t[62])
+  c=z(i,c,d,a,b,X[ 2],15,t[63])
+  b=z(i,b,c,d,a,X[ 9],21,t[64])
+
+  return bit_and(A+a,0xFFFFFFFF),bit_and(B+b,0xFFFFFFFF),
+         bit_and(C+c,0xFFFFFFFF),bit_and(D+d,0xFFFFFFFF)
+end
+
+local function md5_update(self, s)
+  self.pos = self.pos + #s
+  s = self.buf .. s
+  for ii = 1, #s - 63, 64 do
+    local X = cut_le_str(sub(s,ii,ii+63))
+    assert(#X == 16)
+    X[0] = table.remove(X,1)
+    self.a,self.b,self.c,self.d = transform(self.a,self.b,self.c,self.d,X)
+  end
+  self.buf = sub(s, math.floor(#s/64)*64 + 1, #s)
+  return self
+end
+
+local function md5_finish(self)
+  local msgLen = self.pos
+  local padLen = 56 - msgLen % 64
+
+  if msgLen % 64 > 56 then padLen = padLen + 64 end
+
+  if padLen == 0 then padLen = 64 end
+
+  local s = char(128) .. rep(char(0),padLen-1) .. lei2str(bit_and(8*msgLen, 0xFFFFFFFF)) .. lei2str(math.floor(msgLen/0x20000000))
+  md5_update(self, s)
+
+  assert(self.pos % 64 == 0)
+  return lei2str(self.a) .. lei2str(self.b) .. lei2str(self.c) .. lei2str(self.d)
+end
+
+function md5.new()
+  return { a = CONSTS[65], b = CONSTS[66], c = CONSTS[67], d = CONSTS[68],
+           pos = 0,
+           buf = '',
+           update = md5_update,
+           finish = md5_finish }
+end
+
+function md5.tohex(s)
+  return format("%08x%08x%08x%08x", str2bei(sub(s, 1, 4)), str2bei(sub(s, 5, 8)), str2bei(sub(s, 9, 12)), str2bei(sub(s, 13, 16)))
+end
+
+function md5.sum(s)
+  return md5.new():update(s):finish()
+end
+
+function md5.sumhexa(s)
+  return md5.tohex(md5.sum(s))
+end
+
+return md5
+
+)NEOMOD_DELIM"},
+    {"basexx", R"NEOMOD_DELIM(
+local function divide_string( str, max )
+  local result = {}
+
+  local start = 1
+  for i = 1, #str do
+     if i % max == 0 then
+        table.insert( result, str:sub( start, i ) )
+        start = i + 1
+     elseif i == #str then
+        table.insert( result, str:sub( start, i ) )
+     end
+  end
+
+  return result
+end
+
+local function number_to_bit( num, length )
+  local bits = {}
+
+  while num > 0 do
+     local rest = math.floor( math.fmod( num, 2 ) )
+     table.insert( bits, rest )
+     num = ( num - rest ) / 2
+  end
+
+  while #bits < length do
+     table.insert( bits, "0" )
+  end
+
+  return string.reverse( table.concat( bits ) )
+end
+
+local function ignore_set( str, set )
+  if set then
+     str = str:gsub( "["..set.."]", "" )
+  end
+  return str
+end
+
+local function pure_from_bit( str )
+  return ( str:gsub( '........', function ( cc )
+              return string.char( tonumber( cc, 2 ) )
+           end ) )
+end
+
+local function unexpected_char_error( str, pos )
+  local c = string.sub( str, pos, pos )
+  return string.format( "unexpected character at position %d: '%s'", pos, c )
+end
+
+local basexx = {}
+
+local bitMap = { o = "0", i = "1", l = "1" }
+
+function basexx.from_bit( str, ignore )
+  str = ignore_set( str, ignore )
+  str = string.lower( str )
+  str = str:gsub( '[ilo]', function( c ) return bitMap[ c ] end )
+  local pos = string.find( str, "[^01]" )
+  if pos then return nil, unexpected_char_error( str, pos ) end
+
+  return pure_from_bit( str )
+end
+
+function basexx.to_bit( str )
+  return ( str:gsub( '.', function ( c )
+              local byte = string.byte( c )
+              local bits = {}
+              for _ = 1,8 do
+                 table.insert( bits, byte % 2 )
+                 byte = math.floor( byte / 2 )
+              end
+              return table.concat( bits ):reverse()
+           end ) )
+end
+
+function basexx.from_hex( str, ignore )
+  str = ignore_set( str, ignore )
+  local pos = string.find( str, "[^%x]" )
+  if pos then return nil, unexpected_char_error( str, pos ) end
+
+  return ( str:gsub( '..', function ( cc )
+              return string.char( tonumber( cc, 16 ) )
+           end ) )
+end
+
+function basexx.to_hex( str )
+  return ( str:gsub( '.', function ( c )
+              return string.format('%02X', string.byte( c ) )
+           end ) )
+end
+
+local function from_basexx( str, alphabet, bits )
+  local result = {}
+  for i = 1, #str do
+     local c = string.sub( str, i, i )
+     if c ~= '=' then
+        local index = string.find( alphabet, c, 1, true )
+        if not index then
+           return nil, unexpected_char_error( str, i )
+        end
+        table.insert( result, number_to_bit( index - 1, bits ) )
+     end
+  end
+
+  local value = table.concat( result )
+  local pad = #value % 8
+  return pure_from_bit( string.sub( value, 1, #value - pad ) )
+end
+
+local function to_basexx( str, alphabet, bits, pad )
+  local bitString = basexx.to_bit( str )
+
+  local chunks = divide_string( bitString, bits )
+  local result = {}
+  for _,value in ipairs( chunks ) do
+     if ( #value < bits ) then
+        value = value .. string.rep( '0', bits - #value )
+     end
+     local pos = tonumber( value, 2 ) + 1
+     table.insert( result, alphabet:sub( pos, pos ) )
+  end
+
+  table.insert( result, pad )
+  return table.concat( result )
+end
+
+local base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+local base32PadMap = { "", "======", "====", "===", "=" }
+
+function basexx.from_base32( str, ignore )
+  str = ignore_set( str, ignore )
+  return from_basexx( string.upper( str ), base32Alphabet, 5 )
+end
+
+function basexx.to_base32( str )
+  return to_basexx( str, base32Alphabet, 5, base32PadMap[ #str % 5 + 1 ] )
+end
+
+local crockfordAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+local crockfordMap = { O = "0", I = "1", L = "1" }
+
+function basexx.from_crockford( str, ignore )
+  str = ignore_set( str, ignore )
+  str = string.upper( str )
+  str = str:gsub( '[ILOU]', function( c ) return crockfordMap[ c ] end )
+  return from_basexx( str, crockfordAlphabet, 5 )
+end
+
+function basexx.to_crockford( str )
+  return to_basexx( str, crockfordAlphabet, 5, "" )
+end
+
+local base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"..
+                      "abcdefghijklmnopqrstuvwxyz"..
+                      "0123456789+/"
+local base64PadMap = { "", "==", "=" }
+
+function basexx.from_base64( str, ignore )
+  str = ignore_set( str, ignore )
+  return from_basexx( str, base64Alphabet, 6 )
+end
+
+function basexx.to_base64( str )
+  return to_basexx( str, base64Alphabet, 6, base64PadMap[ #str % 3 + 1 ] )
+end
+
+local url64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"..
+                     "abcdefghijklmnopqrstuvwxyz"..
+                     "0123456789-_"
+
+function basexx.from_url64( str, ignore )
+  str = ignore_set( str, ignore )
+  return from_basexx( str, url64Alphabet, 6 )
+end
+
+function basexx.to_url64( str )
+  return to_basexx( str, url64Alphabet, 6, "" )
+end
+
+local function length_error( len, d )
+  return string.format( "invalid length: %d - must be a multiple of %d", len, d )
+end
+
+local z85Decoder = { 0x00, 0x44, 0x00, 0x54, 0x53, 0x52, 0x48, 0x00,
+                    0x4B, 0x4C, 0x46, 0x41, 0x00, 0x3F, 0x3E, 0x45,
+                    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                    0x08, 0x09, 0x40, 0x00, 0x49, 0x42, 0x4A, 0x47,
+                    0x51, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A,
+                    0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32,
+                    0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A,
+                    0x3B, 0x3C, 0x3D, 0x4D, 0x00, 0x4E, 0x43, 0x00,
+                    0x00, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+                    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+                    0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,
+                    0x21, 0x22, 0x23, 0x4F, 0x00, 0x50, 0x00, 0x00 }
+
+function basexx.from_z85( str, ignore )
+  str = ignore_set( str, ignore )
+  if ( #str % 5 ) ~= 0 then
+     return nil, length_error( #str, 5 )
+  end
+
+  local result = {}
+
+  local value = 0
+  for i = 1, #str do
+     local index = string.byte( str, i ) - 31
+     if index < 1 or index >= #z85Decoder then
+        return nil, unexpected_char_error( str, i )
+     end
+     value = ( value * 85 ) + z85Decoder[ index ]
+     if ( i % 5 ) == 0 then
+        local divisor = 256 * 256 * 256
+        while divisor ~= 0 do
+           local b = math.floor( value / divisor ) % 256
+           table.insert( result, string.char( b ) )
+           divisor = math.floor( divisor / 256 )
+        end
+        value = 0
+     end
+  end
+
+  return table.concat( result )
+end
+
+local z85Encoder = "0123456789"..
+                  "abcdefghijklmnopqrstuvwxyz"..
+                  "ABCDEFGHIJKLMNOPQRSTUVWXYZ"..
+                  ".-:+=^!/*?&<>()[]{}@%$#"
+
+function basexx.to_z85( str )
+  if ( #str % 4 ) ~= 0 then
+     return nil, length_error( #str, 4 )
+  end
+
+  local result = {}
+
+  local value = 0
+  for i = 1, #str do
+     local b = string.byte( str, i )
+     value = ( value * 256 ) + b
+     if ( i % 4 ) == 0 then
+        local divisor = 85 * 85 * 85 * 85
+        while divisor ~= 0 do
+           local index = ( math.floor( value / divisor ) % 85 ) + 1
+           table.insert( result, z85Encoder:sub( index, index ) )
+           divisor = math.floor( divisor / 85 )
+        end
+        value = 0
+     end
+  end
+
+  return table.concat( result )
+end
+
+return basexx
+
+)NEOMOD_DELIM"},
+    {"bitex", R"NEOMOD_DELIM(
+local bit = require "bit"
+local int32max = 0xFFFFFFFF
+local bitex = {}
+
+function bitex.bextract(v, off, bits)
+	return bit.band(bit.band(bit.rshift(v, off), bit.rshift(int32max, 32 - bits)), int32max)
+end
+
+function bitex.breplace(v, n, off, bits)
+	n = bitex.bextract(n, 0, bits)
+	return bit.bor(bit.band(v, bit.bnot(bit.lshift(bit.rshift(int32max, 32 - bits), off))), bit.lshift(n, off))
+end
+
+return bitex
+
+)NEOMOD_DELIM"},
+    {"vkeys", R"NEOMOD_DELIM(
+local vkeys = {
+	VK_LBUTTON = 0x01,
+	VK_RBUTTON = 0x02,
+	VK_CANCEL = 0x03,
+	VK_MBUTTON = 0x04,
+	VK_XBUTTON1 = 0x05,
+	VK_XBUTTON2 = 0x06,
+	VK_BACK = 0x08,
+	VK_TAB = 0x09,
+	VK_CLEAR = 0x0C,
+	VK_RETURN = 0x0D,
+	VK_SHIFT = 0x10,
+	VK_CONTROL = 0x11,
+	VK_MENU = 0x12,
+	VK_PAUSE = 0x13,
+	VK_CAPITAL = 0x14,
+	VK_ESCAPE = 0x1B,
+	VK_CONVERT = 0x1C,
+	VK_NONCONVERT = 0x1D,
+	VK_ACCEPT = 0x1E,
+	VK_MODECHANGE = 0x1F,
+	VK_SPACE = 0x20,
+	VK_PRIOR = 0x21,
+	VK_NEXT = 0x22,
+	VK_END = 0x23,
+	VK_HOME = 0x24,
+	VK_LEFT = 0x25,
+	VK_UP = 0x26,
+	VK_RIGHT = 0x27,
+	VK_DOWN = 0x28,
+	VK_SELECT = 0x29,
+	VK_PRINT = 0x2A,
+	VK_EXECUTE = 0x2B,
+	VK_SNAPSHOT = 0x2C,
+	VK_INSERT = 0x2D,
+	VK_DELETE = 0x2E,
+	VK_HELP = 0x2F,
+
+	VK_0 = 0x30,
+	VK_1 = 0x31,
+	VK_2 = 0x32,
+	VK_3 = 0x33,
+	VK_4 = 0x34,
+	VK_5 = 0x35,
+	VK_6 = 0x36,
+	VK_7 = 0x37,
+	VK_8 = 0x38,
+	VK_9 = 0x39,
+
+	VK_A = 0x41,
+	VK_B = 0x42,
+	VK_C = 0x43,
+	VK_D = 0x44,
+	VK_E = 0x45,
+	VK_F = 0x46,
+	VK_G = 0x47,
+	VK_H = 0x48,
+	VK_I = 0x49,
+	VK_J = 0x4A,
+	VK_K = 0x4B,
+	VK_L = 0x4C,
+	VK_M = 0x4D,
+	VK_N = 0x4E,
+	VK_O = 0x4F,
+	VK_P = 0x50,
+	VK_Q = 0x51,
+	VK_R = 0x52,
+	VK_S = 0x53,
+	VK_T = 0x54,
+	VK_U = 0x55,
+	VK_V = 0x56,
+	VK_W = 0x57,
+	VK_X = 0x58,
+	VK_Y = 0x59,
+	VK_Z = 0x5A,
+
+	VK_LWIN = 0x5B,
+	VK_RWIN = 0x5C,
+	VK_APPS = 0x5D,
+	VK_SLEEP = 0x5F,
+
+	VK_NUMPAD0 = 0x60,
+	VK_NUMPAD1 = 0x61,
+	VK_NUMPAD2 = 0x62,
+	VK_NUMPAD3 = 0x63,
+	VK_NUMPAD4 = 0x64,
+	VK_NUMPAD5 = 0x65,
+	VK_NUMPAD6 = 0x66,
+	VK_NUMPAD7 = 0x67,
+	VK_NUMPAD8 = 0x68,
+	VK_NUMPAD9 = 0x69,
+	VK_MULTIPLY = 0x6A,
+	VK_ADD = 0x6B,
+	VK_SEPARATOR = 0x6C,
+	VK_SUBTRACT = 0x6D,
+	VK_DECIMAL = 0x6E,
+	VK_DIVIDE = 0x6F,
+
+	VK_F1 = 0x70,
+	VK_F2 = 0x71,
+	VK_F3 = 0x72,
+	VK_F4 = 0x73,
+	VK_F5 = 0x74,
+	VK_F6 = 0x75,
+	VK_F7 = 0x76,
+	VK_F8 = 0x77,
+	VK_F9 = 0x78,
+	VK_F10 = 0x79,
+	VK_F11 = 0x7A,
+	VK_F12 = 0x7B,
+	VK_F13 = 0x7C,
+	VK_F14 = 0x7D,
+	VK_F15 = 0x7E,
+	VK_F16 = 0x7F,
+	VK_F17 = 0x80,
+	VK_F18 = 0x81,
+	VK_F19 = 0x82,
+	VK_F20 = 0x83,
+	VK_F21 = 0x84,
+	VK_F22 = 0x85,
+	VK_F23 = 0x86,
+	VK_F24 = 0x87,
+
+	VK_NUMLOCK = 0x90,
+	VK_SCROLL = 0x91,
+	VK_LSHIFT = 0xA0,
+	VK_RSHIFT = 0xA1,
+	VK_LCONTROL = 0xA2,
+	VK_RCONTROL = 0xA3,
+	VK_LMENU = 0xA4,
+	VK_RMENU = 0xA5,
+
+	VK_OEM_1 = 0xBA,
+	VK_OEM_PLUS = 0xBB,
+	VK_OEM_COMMA = 0xBC,
+	VK_OEM_MINUS = 0xBD,
+	VK_OEM_PERIOD = 0xBE,
+	VK_OEM_2 = 0xBF,
+	VK_OEM_3 = 0xC0,
+	VK_OEM_4 = 0xDB,
+	VK_OEM_5 = 0xDC,
+	VK_OEM_6 = 0xDD,
+	VK_OEM_7 = 0xDE,
+	VK_OEM_8 = 0xDF
+}
+
+local id_to_name = {}
+for k, v in pairs(vkeys) do
+	id_to_name[v] = k
+end
+
+function vkeys.key_to_name(id)
+	return id_to_name[id]
+end
+
+function vkeys.name_to_key(name)
+	return vkeys[name]
+end
+
+return vkeys
+
+)NEOMOD_DELIM"},
+    {"timerwheel", R"NEOMOD_DELIM(
+local default_now
+if ngx then
+  default_now = ngx.now
+else
+  local ok, socket = pcall(require, "socket")
+  if ok then
+    default_now = socket.gettime
+  else
+    default_now = nil
+  end
+end
+
+local ok, new_tab = pcall(require, "table.new")
+if not ok then
+  new_tab = function(narr, nrec) return {} end
+end
+
+local default_err_handler = function(err)
+  io.stderr:write(debug.traceback("TimerWheel callback failed with: " .. tostring(err)).."\n")
+end
+
+local math_floor = math.floor
+local math_huge = math.huge
+local EMPTY = {}
+
+local _M = {}
+
+function _M.new(opts)
+  assert(opts ~= _M, "new should not be called with colon ':' notation")
+
+  opts = opts or EMPTY
+  assert(type(opts) == "table", "expected options to be a table")
+
+  local precision = opts.precision or 0.050
+  local ringsize  = opts.ringsize or 72000
+  local now       = opts.now or default_now
+  local err_handler = opts.err_handler or default_err_handler
+  opts = nil
+
+  assert(type(precision) == "number" and precision > 0,
+    "expected 'precision' to be number > 0")
+  assert(type(ringsize) == "number" and ringsize > 0 and math_floor(ringsize) == ringsize,
+    "expected 'ringsize' to be an integer number > 0")
+  assert(type(now) == "function",
+    "expected 'now' to be a function, got: " .. type(now))
+  assert(type(err_handler) == "function",
+    "expected 'err_handler' to be a function, got: " .. type(err_handler))
+
+  local start     = now()
+  local position  = 1
+  local id_count  = 0
+  local id_list   = {}
+  local rings     = {}
+  local rings_n   = 0
+  local count     = 0
+  local wheel     = {}
+
+  local tables    = {}
+  local tables_n  = 0
+
+  function wheel:step()
+    local new_position = math_floor((now() - start) / precision) + 1
+    local ring = rings[1] or EMPTY
+
+    while position < new_position do
+
+      local slot = ring[position]
+      ring[position] = nil
+
+      position = position + 1
+      if position > ringsize then
+
+        for i = 1, rings_n do
+
+          rings[i] = rings[i + 1]
+        end
+        rings_n = rings_n - 1
+
+        ring = rings[1] or EMPTY
+        start = start + ringsize * precision
+        position = 1
+        new_position = new_position - ringsize
+      end
+
+      if slot then
+
+        local ids = slot.ids
+        local args = slot.arg
+        for i = 1, slot.n do
+          local id  = slot[i];  slot[i]  = nil; slot[id] = nil
+          local cb  = ids[id];  ids[id]  = nil
+          local arg = args[id]; args[id] = nil
+          id_list[id] = nil
+          count = count - 1
+          xpcall(cb, err_handler, arg)
+        end
+
+        slot.n = 0
+
+        tables_n = tables_n + 1
+        tables[tables_n] = slot
+      end
+
+    end
+    return true
+  end
+
+  function wheel:count()
+    return count
+  end
+
+  function wheel:set(expire_in, cb, arg)
+    local time_expire = now() + expire_in
+    local pos = math_floor((time_expire - start) / precision) + 1
+    if pos < position then
+
+      pos = position
+    end
+    local ring_idx = math_floor((pos - 1) / ringsize) + 1
+    local slot_idx = pos - (ring_idx - 1) * ringsize
+
+    local ring = rings[ring_idx]
+    if not ring then
+      ring = new_tab(ringsize, 0)
+      rings[ring_idx] = ring
+      if ring_idx > rings_n then
+        rings_n = ring_idx
+      end
+    end
+
+    local slot = ring[slot_idx]
+    if not slot then
+      if tables_n == 0 then
+        slot = { n = 0, ids = {}, arg = {} }
+      else
+        slot = tables[tables_n]
+        tables_n = tables_n - 1
+      end
+      ring[slot_idx] = slot
+    end
+
+    local id = id_count - 1
+    id_count = id
+
+    slot.ids[id] = cb or error("the callback parameter is required", 2)
+    slot.arg[id] = arg
+    local idx = slot.n + 1
+    slot.n = idx
+    slot[idx] = id
+    slot[id] = idx
+    id_list[id] = slot
+    count = count + 1
+
+    return id
+  end
+
+  function wheel:cancel(id)
+    local slot = id_list[id]
+    if slot then
+      local idx = slot[id]
+      slot[id] = nil
+      slot.ids[id] = nil
+      slot.arg[id] = nil
+      local n = slot.n
+      if idx ~= n then
+        local moved_id = slot[n]
+        slot[idx] = moved_id
+        slot[moved_id] = idx
+      end
+      slot[n] = nil
+      slot.n = n - 1
+      id_list[id] = nil
+      count = count - 1
+      return true
+    end
+    return false
+  end
+
+  function wheel:peek(max_ahead)
+    if count == 0 then
+      return nil
+    end
+    local time_now = now()
+
+    if max_ahead then
+      max_ahead = math_floor((time_now + max_ahead - start) / precision)
+    else
+      max_ahead = math_huge
+    end
+
+    local position_idx = position
+    local ring_idx = 1
+    local ring = rings[ring_idx] or EMPTY
+    local ahead_count = 0
+    while ahead_count < max_ahead do
+
+      local slot = ring[position_idx]
+      if slot then
+        if slot[1] then
+
+          return ((ring_idx - 1) * ringsize + position_idx) * precision +
+                 start - time_now
+        end
+      end
+
+      position_idx = position_idx + 1
+      ahead_count = ahead_count + 1
+      if position_idx > ringsize then
+        position_idx = 1
+        ring_idx = ring_idx + 1
+        ring = rings[ring_idx] or EMPTY
+      end
+    end
+
+    return nil
+  end
+
+  if _G._TEST then
+
+    wheel._tables = tables
+  end
+
+  return wheel
+end
+
+return _M
+
+)NEOMOD_DELIM"},
+    {"jsoncfg", R"NEOMOD_DELIM(
+-- Portable jsoncfg compatibility module backed by the sandboxed NeoLoader API.
+-- Uses dkjson (original NeoLoader dependency) for JSON encoding/decoding.
+local jsoncfg = {}
+local json = require('dkjson')
+
+function jsoncfg.load(default, filename, extension)
+    local data = default or {}
+    if type(filename) ~= 'string' then return data end
+    local suffix = extension or '.json'
+    local path = 'config/' .. filename
+    if path:sub(-#suffix) ~= suffix then path = path .. suffix end
+    local content = neo_fs_read(path)
+    if type(content) ~= 'string' then return data end
+    local decoded = json.decode(content)
+    if type(decoded) ~= 'table' then return data end
+    for k, v in pairs(decoded) do data[k] = v end
+    return data
+end
+
+function jsoncfg.save(cfg, filename, extension)
+    if type(cfg) ~= 'table' or type(filename) ~= 'string' then return false end
+    local suffix = extension or '.json'
+    local path = 'config/' .. filename
+    if path:sub(-#suffix) ~= suffix then path = path .. suffix end
+    return neo_fs_write(path, json.encode(cfg)) and true or false
+end
+
+return jsoncfg
+
+)NEOMOD_DELIM"},
 };
 
 inline bool neo_module_source(const std::string& name, std::string& out) {

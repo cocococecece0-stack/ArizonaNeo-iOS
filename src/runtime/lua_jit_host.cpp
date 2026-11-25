@@ -128,6 +128,24 @@ int module_require_closure(lua_State* L) {
     }
     lua_pop(L, 3);
 
+    // Built-in libraries opened into globals by initialize() behave like
+    // preloaded Lua modules (standard Lua semantics), without file access.
+    static const char* builtin[] = {"bit", "ffi", "jit", "math", "string",
+                                    "table", "package", "coroutine"};
+    for (const char* library : builtin) {
+        if (std::strcmp(name, library) != 0) continue;
+        lua_getglobal(L, library);
+        if (!lua_isnil(L, -1)) {
+            lua_getglobal(L, "package");
+            lua_getfield(L, -1, "loaded");
+            lua_pushvalue(L, -4);
+            lua_setfield(L, -2, name);
+            lua_pop(L, 3);
+            return 1;
+        }
+        lua_pop(L, 1);
+    }
+
     if (!host->read_module_source(name, host->module_buffer())) {
         lua_pushfstring(L, "module '%s' not found in sandbox", name);
         return lua_error(L);
