@@ -30,6 +30,7 @@ if(ARIZONA_NEO_WITH_LUAJIT)
         src/runtime/lua_jit_host.cpp
         src/runtime/portable_script_loader.cpp
         src/runtime/portable_script_runtime.cpp
+        src/runtime/neo_loader_api.cpp
     )
 endif()
 

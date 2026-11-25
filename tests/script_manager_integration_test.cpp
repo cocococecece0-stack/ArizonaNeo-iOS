@@ -1,4 +1,7 @@
+#include "arizona_neo/core/event_bus.hpp"
 #include "arizona_neo/core/filesystem.hpp"
+#include "arizona_neo/core/scheduler.hpp"
+#include "arizona_neo/runtime/neo_loader_api.hpp"
 #include "arizona_neo/core/script_manager.hpp"
 #include "arizona_neo/runtime/lua_jit_host.hpp"
 #include "arizona_neo/runtime/portable_script_loader.hpp"
@@ -146,6 +149,105 @@ int main() {
     }
     add_script(manager, fs, "empty", "empty.lua", "");
     CHECK(manager.load("empty").ok, "empty Lua file loads and executes");
+
+    // Portable NeoLoader API layer: metadata, EventBus, Scheduler, sandbox fs.
+    {
+        const char* module_names[] = {"sha256", "base64", "binaryheap", "moonloader",
+                                      "vector3d", "matrix3x3", "dkjson", "encoding", "inicfg"};
+        SandboxedFilesystem api_fs(root, true);
+        for (const char* name : module_names) {
+            std::ifstream file(std::string("scripts/neo/modules/") + name + ".lua", std::ios::binary);
+            std::string source((std::istreambuf_iterator<char>(file)),
+                               std::istreambuf_iterator<char>());
+            CHECK(!source.empty(), (std::string("api module source ") + name).c_str());
+            CHECK(api_fs.write_file(std::string("modules/") + name + ".lua", source).ok,
+                  (std::string("api write module ") + name).c_str());
+        }
+        std::ifstream script_file("scripts/neo/scripts/AutoFlip.lua", std::ios::binary);
+        std::string script_source((std::istreambuf_iterator<char>(script_file)),
+                                  std::istreambuf_iterator<char>());
+        CHECK(!script_source.empty(), "original AutoFlip.lua readable");
+        CHECK(api_fs.write_file("scripts/AutoFlip.lua", script_source).ok, "write AutoFlip.lua");
+
+        arizona_neo::runtime::LuaLibraryPolicy api_policy;
+        api_policy.bit = true;
+        LuaJITHost api_host(api_policy);
+        api_host.set_module_source_reader(
+            [&api_fs](const std::string& requested, std::string& out) -> bool {
+                std::string name = requested;
+                if (name.rfind("lib.", 0) == 0) name = name.substr(4);
+                for (char& c : name) if (c == '.') c = '/';
+                const auto read = api_fs.read_file("modules/" + name + ".lua");
+                if (!read.ok) return false;
+                out = std::move(read.value);
+                return true;
+            });
+        CHECK(api_host.initialize(), "api host initialize");
+
+        arizona_neo::core::EventBus bus;
+        arizona_neo::core::Scheduler scheduler;
+        arizona_neo::runtime::NeoLoaderAPI api(api_host, bus, scheduler, api_fs);
+        CHECK(api.install(), "portable API install");
+
+        PortableScriptLoader api_loader(api_host, api_fs);
+        PortableScriptRuntime api_runtime(api_loader);
+        ScriptManager api_manager;
+        api_manager.set_runtime(&api_runtime);
+
+        for (const char* name : module_names) {
+            ScriptMetadata meta;
+            meta.id = std::string("api_") + name;
+            meta.path = std::string("modules/") + name + ".lua";
+            CHECK(api_manager.register_script(meta).ok, "api register module");
+            auto result = api_manager.load(meta.id);
+            if (!result.ok) std::cerr << "API MODULE ERR " << name << ": " << result.message << "\n";
+            CHECK(result.ok, (std::string("api load module ") + name).c_str());
+        }
+
+        ScriptMetadata auto_meta;
+        auto_meta.id = "AutoFlip";
+        auto_meta.path = "scripts/AutoFlip.lua";
+        CHECK(api_manager.register_script(auto_meta).ok, "register AutoFlip");
+        auto auto_result = api_manager.load("AutoFlip");
+        if (!auto_result.ok) std::cerr << "AUTOFLIP ERR: " << auto_result.message << "\n";
+        CHECK(auto_result.ok, "original AutoFlip.lua loads via portable API");
+        CHECK(api.script_meta().name == "AutoFlip.lua", "script metadata captured from original script");
+
+        CHECK(api_host.execute_detailed(
+            "neo_meta_marker = (neo_meta().name == 'AutoFlip.lua') and 1 or 0",
+            "verify_meta").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "metadata verification executes");
+        CHECK(api_host.get_global_number("neo_meta_marker") == 1.0, "metadata visible in Lua");
+
+        CHECK(api_host.execute_detailed(
+            "neo_event_fired = 0; "
+            "neo_event_subscribe('neo_test_event', function() neo_event_fired = neo_event_fired + 1 end); "
+            "neo_event_publish('neo_test_event'); neo_event_publish('neo_test_event')",
+            "verify_events").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "event verification executes");
+        CHECK(api_host.get_global_number("neo_event_fired") == 2.0, "EventBus delivers Lua handlers");
+
+        CHECK(api_host.execute_detailed(
+            "neo_scheduled = 0; "
+            "neo_schedule(10, function() neo_scheduled = neo_scheduled + 1 end); "
+            "neo_tick(25)",
+            "verify_scheduler").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "scheduler verification executes");
+        CHECK(api_host.get_global_number("neo_scheduled") == 1.0, "Scheduler runs Lua callbacks");
+
+        const auto fs_result = api_host.execute_detailed(
+            "neo_fs_write('config/test.ini', '[settings]\\nenabled=true\\n'); "
+            "local cfgmod = require('inicfg'); neo_cfg = cfgmod.load({}, 'test.ini')",
+            "verify_fs");
+        CHECK(fs_result.status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "sandboxed config verification executes");
+        CHECK(api_host.execute_detailed(
+            "neo_cfg_marker = (neo_cfg.settings.enabled == true) and 1 or 0",
+            "verify_cfg").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "config marker executes");
+        CHECK(api_host.get_global_number("neo_cfg_marker") == 1.0, "sandboxed inicfg works");
+        CHECK(api_host.stack_top() == 0, "stack clean after portable API checks");
+    }
 
     // Multiple original NeoLoader modules with real require dependencies.
     {

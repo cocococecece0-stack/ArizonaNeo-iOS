@@ -62,6 +62,10 @@ public:
     // Whether initialize() succeeded and shutdown() has not been called.
     bool is_initialized() const noexcept;
 
+    // Live Lua state for bridge layers that need registry access.
+    // Only valid between a successful initialize() and shutdown().
+    lua_State* state() const noexcept { return state_; }
+
     // Helpers for tests (extension, not part of LuaHost).
     double get_global_number(const char* name) const;
     std::string get_global_string(const char* name) const;

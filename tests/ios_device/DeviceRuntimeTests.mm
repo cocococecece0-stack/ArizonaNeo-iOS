@@ -7,8 +7,12 @@
 #include "arizona_neo/runtime/portable_script_loader.hpp"
 #include "arizona_neo/core/script_manager.hpp"
 #include "arizona_neo/runtime/portable_script_runtime.hpp"
+#include "arizona_neo/runtime/neo_loader_api.hpp"
+#include "arizona_neo/core/event_bus.hpp"
+#include "arizona_neo/core/scheduler.hpp"
 #include "NeoSha256Script.h"
 #include "NeoModules.h"
+#include "NeoAutoFlipScript.h"
 
 #include <chrono>
 #include <cstdarg>
@@ -535,6 +539,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
             blocked("42_sm_shutdown_reinit", "Documents directory unavailable");
             blocked("43_neo_script_execute", "Documents directory unavailable");
             blocked("44_neo_multi_module", "Documents directory unavailable");
+            blocked("45_neo_portable_api", "Documents directory unavailable");
         } else {
             const std::filesystem::path root([[documents stringByAppendingPathComponent:
                                                @"ArizonaNeoDeviceTest/scripts"] UTF8String]);
@@ -865,6 +870,86 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                     script_host.get_global_number("neo_missing_marker") != 1.0) {
                     message = "missing module error handling failed";
                     return false;
+                }
+                return script_host.stack_top() == 0;
+            });
+
+            // Portable NeoLoader API layer: metadata, EventBus, Scheduler, sandbox fs.
+            record("45_neo_portable_api", [&](std::string &message) -> bool {
+                arizona_neo::runtime::LuaLibraryPolicy policy;
+                policy.bit = true;
+                LuaJITHost script_host(policy);
+                script_host.set_module_source_reader([](const std::string& name, std::string& out) -> bool {
+                    return neo_module_source(name, out);
+                });
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                for (const auto& entry : NEO_MODULES) {
+                    if (!fs.write_file(std::string("modules/") + entry.name + ".lua", entry.source).ok) {
+                        message = "write module failed"; return false;
+                    }
+                }
+                if (!fs.write_file("scripts/AutoFlip.lua", NEO_AUTOFLIP_SCRIPT).ok) {
+                    message = "write AutoFlip failed"; return false;
+                }
+                arizona_neo::core::EventBus bus;
+                arizona_neo::core::Scheduler scheduler;
+                arizona_neo::runtime::NeoLoaderAPI api(script_host, bus, scheduler, fs);
+                if (!api.install()) { message = "api install failed"; return false; }
+
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                for (const auto& entry : NEO_MODULES) {
+                    ScriptMetadata meta;
+                    meta.id = std::string("api_") + entry.name;
+                    meta.path = std::string("modules/") + entry.name + ".lua";
+                    if (!manager.register_script(meta).ok || !manager.load(meta.id).ok) {
+                        message = std::string("api module load failed: ") + entry.name;
+                        return false;
+                    }
+                }
+                ScriptMetadata auto_meta;
+                auto_meta.id = "AutoFlip";
+                auto_meta.path = "scripts/AutoFlip.lua";
+                if (!manager.register_script(auto_meta).ok || !manager.load("AutoFlip").ok) {
+                    message = "original AutoFlip.lua load failed: " + manager.last_error();
+                    return false;
+                }
+                if (api.script_meta().name != "AutoFlip.lua") {
+                    message = "script metadata not captured";
+                    return false;
+                }
+                const auto meta_check = script_host.execute_detailed(
+                    "neo_meta_marker = (neo_meta().name == 'AutoFlip.lua') and 1 or 0", "verify_meta");
+                if (meta_check.status != arizona_neo::runtime::LuaExecutionStatus::Success ||
+                    script_host.get_global_number("neo_meta_marker") != 1.0) {
+                    message = "metadata bridge failed"; return false;
+                }
+                const auto event_check = script_host.execute_detailed(
+                    "neo_event_fired = 0; "
+                    "neo_event_subscribe('neo_test_event', function() neo_event_fired = neo_event_fired + 1 end); "
+                    "neo_event_publish('neo_test_event'); neo_event_publish('neo_test_event')", "verify_events");
+                if (event_check.status != arizona_neo::runtime::LuaExecutionStatus::Success ||
+                    script_host.get_global_number("neo_event_fired") != 2.0) {
+                    message = "event bridge failed"; return false;
+                }
+                const auto timer_check = script_host.execute_detailed(
+                    "neo_scheduled = 0; "
+                    "neo_schedule(10, function() neo_scheduled = neo_scheduled + 1 end); "
+                    "neo_tick(25)", "verify_scheduler");
+                if (timer_check.status != arizona_neo::runtime::LuaExecutionStatus::Success ||
+                    script_host.get_global_number("neo_scheduled") != 1.0) {
+                    message = "scheduler bridge failed"; return false;
+                }
+                const auto fs_check = script_host.execute_detailed(
+                    "neo_fs_write('config/test.ini', '[settings]\\nenabled=true\\n'); "
+                    "local cfgmod = require('inicfg'); neo_cfg = cfgmod.load({}, 'test.ini'); "
+                    "neo_cfg_marker = (neo_cfg.settings.enabled == true) and 1 or 0", "verify_fs");
+                if (fs_check.status != arizona_neo::runtime::LuaExecutionStatus::Success ||
+                    script_host.get_global_number("neo_cfg_marker") != 1.0) {
+                    message = "sandboxed config failed"; return false;
                 }
                 return script_host.stack_top() == 0;
             });
