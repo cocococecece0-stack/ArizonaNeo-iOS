@@ -18,7 +18,12 @@ int main() {
 
     CHECK(neo_bootstrap_get_status(nullptr) == NEO_BOOTSTRAP_INVALID_ARGUMENT,
           "null status rejected");
-    CHECK(std::strcmp(neo_bootstrap_get_version(), "1.0.0-stage11") == 0,
+    char marker_path[512];
+    CHECK(neo_bootstrap_get_marker_path(marker_path, sizeof(marker_path)) == NEO_BOOTSTRAP_OK,
+          "marker path available");
+    CHECK(std::strstr(marker_path, "neo_bootstrap.marker") != nullptr,
+          "marker path names diagnostic file");
+    CHECK(std::strcmp(neo_bootstrap_get_version(), "1.0.0-stage13.1") == 0,
           "bootstrap version exported");
     CHECK(neo_bootstrap_get_status(&status) == NEO_BOOTSTRAP_OK, "status before init");
     CHECK(status.state == NEO_BOOTSTRAP_NOT_STARTED, "initial state NOT_STARTED");
@@ -28,13 +33,18 @@ int main() {
     CHECK(neo_bootstrap_initialize() == NEO_BOOTSTRAP_OK, "first initialize");
     CHECK(neo_bootstrap_get_status(&status) == NEO_BOOTSTRAP_OK, "status after init");
     CHECK(status.state == NEO_BOOTSTRAP_READY_HOST_PENDING, "host-pending state");
+    CHECK(status.dylib_loaded == 1, "constructor recorded dylib load");
+    CHECK(status.bootstrap_initialized == 1, "bootstrap initialized flag");
+    CHECK(status.host_pending == 1, "host pending flag");
+    CHECK(status.runtime_ready_flag == 0, "no false runtime ready");
+    CHECK(status.failed_flag == 0 && status.stopped_flag == 0, "no false failed/stopped");
 #if defined(ARIZONA_NEO_WITH_LUAJIT)
     CHECK(status.runtime_available == 1, "portable runtime available");
 #else
     CHECK(status.runtime_available == 0, "runtime unavailable without LuaJIT");
 #endif
     CHECK(status.game_capabilities_available == 0, "no false game capabilities");
-    CHECK(std::strcmp(status.bootstrap_version, "1.0.0-stage11") == 0, "bootstrap version in status");
+    CHECK(std::strcmp(status.bootstrap_version, "1.0.0-stage13.1") == 0, "bootstrap version in status");
     CHECK(status.core_version[0] != '\0', "core version in status");
     CHECK(status.error[0] == '\0', "no error after successful init");
     CHECK(status.init_duration_ms < 60000, "init duration recorded");
@@ -52,6 +62,7 @@ int main() {
     CHECK(neo_bootstrap_get_status(&status) == NEO_BOOTSTRAP_OK, "status after rejected host");
     CHECK(status.state == NEO_BOOTSTRAP_READY_HOST_PENDING, "state unchanged after rejected host");
     CHECK(status.game_capabilities_available == 0, "still no false game capability");
+    CHECK(status.runtime_ready_flag == 0, "rejected host did not set runtime ready");
 
     // Concurrent status readers and repeated initialize calls must be safe.
     std::atomic<int> errors{0};
@@ -73,6 +84,8 @@ int main() {
     CHECK(status.state == NEO_BOOTSTRAP_STOPPED, "STOPPED state");
     CHECK(status.shutdown_called == 1, "shutdown fact recorded");
     CHECK(status.runtime_available == 0, "runtime released");
+    CHECK(status.stopped_flag == 1, "stopped flag");
+    CHECK(status.runtime_ready_flag == 0, "runtime ready cleared");
     CHECK(status.game_capabilities_available == 0, "game capability cleared");
 
     CHECK(neo_bootstrap_shutdown() == NEO_BOOTSTRAP_OK, "repeated shutdown is safe");

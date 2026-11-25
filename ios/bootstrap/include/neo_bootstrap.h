@@ -30,6 +30,13 @@ typedef struct neo_bootstrap_status {
     int shutdown_called;
     int runtime_available;
     int game_capabilities_available;
+    int dylib_loaded;
+    int bootstrap_initializing;
+    int bootstrap_initialized;
+    int host_pending;
+    int runtime_ready_flag;
+    int failed_flag;
+    int stopped_flag;
 } neo_bootstrap_status_t;
 
 /* Native interfaces supplied by a real in-process host. All pointers are
@@ -49,6 +56,7 @@ NEO_BOOTSTRAP_API int neo_bootstrap_shutdown(void);
 NEO_BOOTSTRAP_API int neo_bootstrap_get_status(neo_bootstrap_status_t* out_status);
 NEO_BOOTSTRAP_API const char* neo_bootstrap_get_version(void);
 NEO_BOOTSTRAP_API int neo_bootstrap_attach_host(const neo_bootstrap_host_interfaces_t* interfaces);
+NEO_BOOTSTRAP_API int neo_bootstrap_get_marker_path(char* out_path, unsigned long long capacity);
 
 #ifdef __cplusplus
 }

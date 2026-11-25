@@ -10,23 +10,61 @@
 #include "arizona_neo/runtime/neo_loader_host.hpp"
 #endif
 
+#include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
 
+#if defined(__APPLE__)
+#include <os/log.h>
+#endif
+
 namespace {
 
-constexpr const char* kBootstrapVersion = "1.0.0-stage11";
+constexpr const char* kBootstrapVersion = "1.0.0-stage13.1";
+constexpr const char* kDiagnosticFile = "Library/Caches/neo_bootstrap.marker";
 
-bool g_library_loaded = false;
+std::atomic<bool> g_library_loaded{false};
 
-__attribute__((constructor)) void neo_bootstrap_library_loaded() {
-    // Deliberately minimal: only record that the dynamic library was loaded.
-    // No runtime, filesystem or Lua work happens in the loader constructor.
-    g_library_loaded = true;
+// Writes a small diagnostic record inside the application container. All work
+// is C-only and allocation-free so it is safe from a dyld initializer.
+void write_diagnostic(const char* event, const char* detail) {
+    const char* home = std::getenv("HOME");
+    char path[512];
+    if (home == nullptr || home[0] == '\0') {
+        std::snprintf(path, sizeof(path), "/tmp/neo_bootstrap.marker");
+    } else {
+        std::snprintf(path, sizeof(path), "%s/%s", home, kDiagnosticFile);
+    }
+    FILE* file = std::fopen(path, "a");
+    if (file == nullptr) return;
+    std::fprintf(file, "neo_bootstrap event=%s detail=%s version=%s\n",
+                 event != nullptr ? event : "unknown",
+                 detail != nullptr ? detail : "none",
+                 kBootstrapVersion);
+    std::fclose(file);
+}
+
+void diagnostic_log(const char* event) {
+#if defined(__APPLE__)
+    os_log_info(OS_LOG_DEFAULT, "neo_bootstrap: %{public}s", event);
+#else
+    (void)event;
+#endif
+}
+
+__attribute__((constructor)) __attribute__((used))
+void neo_bootstrap_library_loaded() {
+    // Only record the fact that dyld executed this library's initializer.
+    // No LuaJIT, Core or host objects are created here.
+    g_library_loaded.store(true);
+    write_diagnostic("DYLIB_LOADED", "constructor");
+    diagnostic_log("DYLIB_LOADED");
 }
 
 const char* state_name(neo_bootstrap_state_t state) {
@@ -89,7 +127,9 @@ BootstrapState& state() {
 
 int fail(BootstrapState& bootstrap, const char* message) {
     bootstrap.state = NEO_BOOTSTRAP_FAILED;
-    bootstrap.error = message;
+    bootstrap.error = message != nullptr ? message : "unknown error";
+    write_diagnostic("FAILED", bootstrap.error.c_str());
+    diagnostic_log("FAILED");
     bootstrap.reset_runtime();
     return NEO_BOOTSTRAP_INTERNAL_ERROR;
 }
@@ -112,6 +152,8 @@ NEO_BOOTSTRAP_API int neo_bootstrap_initialize(void) {
 
         const auto started = std::chrono::steady_clock::now();
         bootstrap.state = NEO_BOOTSTRAP_INITIALIZING;
+        write_diagnostic("BOOTSTRAP_INITIALIZING", "neo_bootstrap_initialize");
+        diagnostic_log("BOOTSTRAP_INITIALIZING");
         bootstrap.error.clear();
         bootstrap.shutdown_called = false;
         bootstrap.game_capabilities_available = false;
@@ -138,6 +180,8 @@ NEO_BOOTSTRAP_API int neo_bootstrap_initialize(void) {
 #endif
 
         bootstrap.state = NEO_BOOTSTRAP_READY_HOST_PENDING;
+        write_diagnostic("HOST_PENDING", "runtime available, game capabilities unavailable");
+        diagnostic_log("HOST_PENDING");
         const auto elapsed = std::chrono::steady_clock::now() - started;
         bootstrap.init_duration_ms = static_cast<unsigned long long>(
             std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
@@ -158,6 +202,8 @@ NEO_BOOTSTRAP_API int neo_bootstrap_shutdown(void) {
             return NEO_BOOTSTRAP_OK;
         }
         bootstrap.shutdown_called = true;
+        write_diagnostic("SHUTDOWN", "neo_bootstrap_shutdown");
+        diagnostic_log("SHUTDOWN");
         bootstrap.game_capabilities_available = false;
         bootstrap.runtime_available = false;
         bootstrap.reset_runtime();
@@ -186,6 +232,15 @@ NEO_BOOTSTRAP_API int neo_bootstrap_get_status(neo_bootstrap_status_t* out_statu
         out_status->shutdown_called = bootstrap.shutdown_called ? 1 : 0;
         out_status->runtime_available = bootstrap.runtime_available ? 1 : 0;
         out_status->game_capabilities_available = bootstrap.game_capabilities_available ? 1 : 0;
+        out_status->dylib_loaded = g_library_loaded.load() ? 1 : 0;
+        out_status->bootstrap_initializing = bootstrap.state == NEO_BOOTSTRAP_INITIALIZING ? 1 : 0;
+        out_status->bootstrap_initialized =
+            (bootstrap.state == NEO_BOOTSTRAP_READY_HOST_PENDING ||
+             bootstrap.state == NEO_BOOTSTRAP_RUNTIME_READY) ? 1 : 0;
+        out_status->host_pending = bootstrap.state == NEO_BOOTSTRAP_READY_HOST_PENDING ? 1 : 0;
+        out_status->runtime_ready_flag = bootstrap.state == NEO_BOOTSTRAP_RUNTIME_READY ? 1 : 0;
+        out_status->failed_flag = bootstrap.state == NEO_BOOTSTRAP_FAILED ? 1 : 0;
+        out_status->stopped_flag = bootstrap.state == NEO_BOOTSTRAP_STOPPED ? 1 : 0;
         return NEO_BOOTSTRAP_OK;
     } catch (...) {
         return NEO_BOOTSTRAP_INTERNAL_ERROR;
@@ -194,6 +249,23 @@ NEO_BOOTSTRAP_API int neo_bootstrap_get_status(neo_bootstrap_status_t* out_statu
 
 NEO_BOOTSTRAP_API const char* neo_bootstrap_get_version(void) {
     return kBootstrapVersion;
+}
+
+NEO_BOOTSTRAP_API int neo_bootstrap_get_marker_path(char* out_path, unsigned long long capacity) {
+    if (out_path == nullptr || capacity == 0) return NEO_BOOTSTRAP_INVALID_ARGUMENT;
+    const char* home = std::getenv("HOME");
+    int written = 0;
+    if (home == nullptr || home[0] == '\0') {
+        written = std::snprintf(out_path, static_cast<std::size_t>(capacity),
+                                "/tmp/neo_bootstrap.marker");
+    } else {
+        written = std::snprintf(out_path, static_cast<std::size_t>(capacity),
+                                "%s/%s", home, kDiagnosticFile);
+    }
+    if (written < 0 || static_cast<unsigned long long>(written) >= capacity) {
+        return NEO_BOOTSTRAP_INVALID_ARGUMENT;
+    }
+    return NEO_BOOTSTRAP_OK;
 }
 
 NEO_BOOTSTRAP_API int neo_bootstrap_attach_host(const neo_bootstrap_host_interfaces_t* interfaces) {
@@ -215,6 +287,8 @@ NEO_BOOTSTRAP_API int neo_bootstrap_attach_host(const neo_bootstrap_host_interfa
             return NEO_BOOTSTRAP_INVALID_STATE;
         }
         bootstrap.game_capabilities_available = true;
+        write_diagnostic("RUNTIME_READY", "confirmed NativeInterfaces attached");
+        diagnostic_log("RUNTIME_READY");
         bootstrap.state = NEO_BOOTSTRAP_RUNTIME_READY;
         return NEO_BOOTSTRAP_OK;
     } catch (const std::exception& error) {

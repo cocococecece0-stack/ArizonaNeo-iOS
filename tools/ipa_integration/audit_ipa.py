@@ -12,10 +12,11 @@ import zipfile
 MH_MAGIC_64 = 0xFEEDFACF
 LC_LOAD_DYLIB = 0x0C
 LC_RPATH = 0x8000001C
+LC_SEGMENT_64 = 0x19
 EXPECTED_EXPORTS = [
     "_neo_bootstrap_initialize", "_neo_bootstrap_shutdown",
     "_neo_bootstrap_get_status", "_neo_bootstrap_get_version",
-    "_neo_bootstrap_attach_host",
+    "_neo_bootstrap_attach_host", "_neo_bootstrap_get_marker_path",
 ]
 DYLIB_NAME = "@rpath/libNeoLoaderBootstrap.dylib"
 RPATH = "@executable_path/Frameworks"
@@ -42,6 +43,25 @@ def commands(data):
             result.append((cmd, data[pos + name_off:pos + cmdsize].split(b"\0")[0].decode()))
         pos += cmdsize
     return result
+
+
+def has_mod_init_func(data):
+    magic, _, _, _, ncmds, _, _, _ = struct.unpack_from("<IIIIIIII", data, 0)
+    if magic != MH_MAGIC_64:
+        return False
+    pos = 32
+    for _ in range(ncmds):
+        cmd, cmdsize = struct.unpack_from("<II", data, pos)
+        if cmd == LC_SEGMENT_64:
+            nsects = struct.unpack_from("<I", data, pos + 64)[0]
+            sect_pos = pos + 72
+            for _ in range(nsects):
+                name = data[sect_pos:sect_pos + 16].split(b"\0")[0]
+                if name == b"__mod_init_func":
+                    return True
+                sect_pos += 80
+        pos += cmdsize
+    return False
 
 
 def main():
@@ -71,6 +91,9 @@ def main():
             digest = hashlib.sha256(data).hexdigest()
             check("dylib_sha256", digest == args.expected_dylib_sha256)
             check("dylib_macho", data[:4] == b"\xcf\xfa\xed\xfe")
+            check("dylib_mod_init_func", has_mod_init_func(data))
+            for symbol in EXPECTED_EXPORTS:
+                check("export_" + symbol, symbol.encode() in data)
         plist_names = [n for n in names if n.endswith("/Info.plist") and n.startswith("Payload/") and n.count("/") == 2]
         check("info_plist_present", len(plist_names) == 1)
         if plist_names:
