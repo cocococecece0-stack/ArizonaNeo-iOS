@@ -206,11 +206,11 @@ jobs:
             ci/artifact-sha.txt \
             ci/device-binary-info.txt \
             ci/device-build-version.txt \
-            ci/device-symbols.txt
-            ci/build-core/libNeoLoaderBootstrap.dylib
-            ci/bootstrap-binary-info.txt
-            ci/bootstrap-build-version.txt
-            ci/bootstrap-symbols.txt
+            ci/device-symbols.txt \
+            ci/build-core/libNeoLoaderBootstrap.dylib \
+            ci/bootstrap-binary-info.txt \
+            ci/bootstrap-build-version.txt \
+            ci/bootstrap-symbols.txt \
             ci/bootstrap-sha256.txt > ci/sha256-manifest.txt
           cat ci/sha256-manifest.txt
           echo "- iOS device build: PASS (unsigned IPA; device runtime NOT executed)" >> "$GITHUB_STEP_SUMMARY"
