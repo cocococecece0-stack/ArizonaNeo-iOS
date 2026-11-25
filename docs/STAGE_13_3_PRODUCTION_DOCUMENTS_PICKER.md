@@ -35,6 +35,7 @@
 - Linux Debug/Release + LuaJIT ON: 14/14 PASS.
 - Linux LuaJIT OFF: 11/11 PASS.
 - iOS Core build (run `45685236878`): success.
+- iOS Core + host adapter build (run `45687742319`): success (Foundation/UIKit/UniformTypeIdentifiers link OK).
 - Пользовательские документы и локальные изменения сохранены.
 
 ## Git
