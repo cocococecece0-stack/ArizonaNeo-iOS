@@ -2,6 +2,7 @@
 #include "arizona_neo/core/filesystem.hpp"
 #include "arizona_neo/core/scheduler.hpp"
 #include "arizona_neo/runtime/neo_loader_api.hpp"
+#include "arizona_neo/runtime/neo_loader_host.hpp"
 #include "arizona_neo/game/game_bridge.hpp"
 #include "arizona_neo/game/graphics_failure_adapter.hpp"
 #include "arizona_neo/game/ios_native_interface.hpp"
@@ -182,6 +183,46 @@ int main() {
     }
     add_script(manager, fs, "empty", "empty.lua", "");
     CHECK(manager.load("empty").ok, "empty Lua file loads and executes");
+
+    // Production host contract: confirmed function pointers drive start/stop.
+    {
+        LuaJITHost production_host;
+        CHECK(production_host.initialize(), "production host initialize");
+        arizona_neo::core::EventBus production_bus;
+        arizona_neo::core::Scheduler production_scheduler;
+        SandboxedFilesystem production_fs(root, true);
+        ScriptManager production_manager;
+        arizona_neo::runtime::NeoLoaderHost neo_host(production_host, production_bus,
+                                        production_scheduler, production_manager,
+                                        production_fs);
+        CHECK(!neo_host.ready(), "host not ready before start");
+
+        arizona_neo::runtime::NeoLoaderHost::NativeInterfaces missing;
+        CHECK(!neo_host.start(missing), "start rejects missing native interface");
+        CHECK(!neo_host.bridge().capability_available(arizona_neo::game::GameCapability::Events),
+              "capability stays unavailable without confirmed pointers");
+
+        arizona_neo::runtime::NeoLoaderHost::NativeInterfaces confirmed;
+        confirmed.graphics_failure_set_handler = &native_fake_set_handler;
+        CHECK(neo_host.start(confirmed), "start attaches confirmed native interface");
+        CHECK(neo_host.ready(), "host ready after confirmed attach");
+        CHECK(neo_host.bridge().capability_available(arizona_neo::game::GameCapability::Events),
+              "capability promoted after attach");
+
+        native_fake_notify();
+        CHECK(neo_host.bridge().pump(), "native callback forwarded after host start");
+        CHECK(production_host.stack_top() == 0, "stack clean after host pump");
+
+        neo_host.stop();
+        CHECK(!neo_host.ready(), "host stopped");
+        native_fake_notify();
+        CHECK(!neo_host.bridge().pump(), "no callbacks after host stop");
+        CHECK(native_fake_context == nullptr && native_fake_handler == nullptr,
+              "host stop unregistered native callback");
+        CHECK(neo_host.start(confirmed), "host supports restart after stop");
+        CHECK(neo_host.ready(), "host ready after restart");
+        neo_host.stop();
+    }
 
     // Portable NeoLoader API layer: metadata, EventBus, Scheduler, sandbox fs.
     {

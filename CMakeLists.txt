@@ -31,6 +31,7 @@ if(ARIZONA_NEO_WITH_LUAJIT)
         src/runtime/portable_script_loader.cpp
         src/runtime/portable_script_runtime.cpp
         src/runtime/neo_loader_api.cpp
+        src/runtime/neo_loader_host.cpp
     )
 endif()
 

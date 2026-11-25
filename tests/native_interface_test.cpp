@@ -73,6 +73,15 @@ int main() {
         CHECK(bus.unsubscribe(token), "subscription removed");
         bridge.detach();
         CHECK(!bridge.ready(), "detach restores null interface");
+
+        void* saved_context = g_context;
+        void (*saved_handler)(void*) = g_handler;
+        adapter.shutdown();
+        CHECK(g_context == nullptr && g_handler == nullptr, "shutdown unregistered handler");
+        if (saved_handler != nullptr && saved_context != nullptr) {
+            saved_handler(saved_context);
+        }
+        CHECK(!bridge.pump(), "callback after shutdown did not queue an event");
     }
 
     // Destructor unregistered the callback: no use-after-free on later notify.

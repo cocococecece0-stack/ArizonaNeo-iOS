@@ -4,6 +4,7 @@
 #include "arizona_neo/game/ios_native_interface.hpp"
 
 #include <deque>
+#include <atomic>
 #include <mutex>
 #include <string>
 
@@ -23,6 +24,11 @@ public:
 
     bool ready() const noexcept override;
     std::vector<GameCapability> supported() const override;
+
+    // Unregisters the native callback and drops queued events. Safe to call
+    // more than once; callbacks racing with shutdown are ignored.
+    void shutdown() noexcept;
+
     std::optional<GameEvent> poll_event() override;
     std::string lifecycle_state() const override { return "running"; }
 
@@ -33,6 +39,7 @@ private:
     void on_native_callback() noexcept;
 
     IosGraphicsFailureInterface native_;
+    std::atomic<bool> active_{false};
     std::mutex mutex_;
     std::deque<GameEvent> queue_;
 };
