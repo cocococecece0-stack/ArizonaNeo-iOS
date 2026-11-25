@@ -128,6 +128,7 @@ jobs:
           # Stage 11: build the standalone iOS bootstrap dylib from the same
           # freshly built Core, not from a prebuilt artifact.
           cmake --build ci/build-core --target neo_loader_bootstrap --parallel 2 2>&1 | tee ci/bootstrap-build.log
+          cmake --build ci/build-core --target neo_ios_documents_host --parallel 2 2>&1 | tee ci/ios-documents-host-build.log
           BOOTSTRAP_DYLIB="$GITHUB_WORKSPACE/ci/build-core/libNeoLoaderBootstrap.dylib"
           test -f "$BOOTSTRAP_DYLIB"
           file "$BOOTSTRAP_DYLIB" | tee ci/bootstrap-binary-info.txt
