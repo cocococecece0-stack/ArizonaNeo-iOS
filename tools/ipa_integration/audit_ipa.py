@@ -98,6 +98,9 @@ def main():
         check("info_plist_present", len(plist_names) == 1)
         if plist_names:
             info = plistlib.loads(archive.read(plist_names[0]))
+            check("UIFileSharingEnabled", info.get("UIFileSharingEnabled") is True)
+            check("LSSupportsOpeningDocumentsInPlace",
+                  info.get("LSSupportsOpeningDocumentsInPlace") is True)
             exe_name = info.get("CFBundleExecutable")
             exe_path = "Payload/" + info["CFBundleName"] + ".app/" + exe_name \
                 if info.get("CFBundleName") else None

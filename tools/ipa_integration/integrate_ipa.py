@@ -209,6 +209,23 @@ def main():
         report["bundle_identifier"] = info.get("CFBundleIdentifier")
         report["executable"] = info.get("CFBundleExecutable")
 
+        # Files visibility for the original Arizona bundle. Only these two
+        # keys are added; every other Info.plist key is preserved byte-for-byte
+        # in semantics (plistlib round-trips the document).
+        info_path = os.path.join(app, "Info.plist")
+        with open(info_path, "rb") as handle:
+            plist = plistlib.load(handle)
+        plist["UIFileSharingEnabled"] = True
+        plist["LSSupportsOpeningDocumentsInPlace"] = True
+        with open(info_path, "wb") as handle:
+            plistlib.dump(plist, handle, fmt=plistlib.FMT_XML)
+        with open(info_path, "rb") as handle:
+            verified = plistlib.load(handle)
+        report["files_visibility"] = {
+            "UIFileSharingEnabled": verified.get("UIFileSharingEnabled"),
+            "LSSupportsOpeningDocumentsInPlace": verified.get("LSSupportsOpeningDocumentsInPlace"),
+        }
+
         frameworks = os.path.join(app, "Frameworks")
         os.makedirs(frameworks, exist_ok=True)
         shutil.copy2(args.dylib, os.path.join(frameworks, "libNeoLoaderBootstrap.dylib"))
