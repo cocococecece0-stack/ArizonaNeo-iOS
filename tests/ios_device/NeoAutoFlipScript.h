@@ -1,6 +1,6 @@
 #pragma once
 
-static const char* NEO_AUTOFLIP_SCRIPT = R"NEOAUTOFLIP_DELIM(
+static const char* NEO_AUTOFLIP_SCRIPT = R"AFLIP(
 script_name('AutoFlip.lua')
 script_author('fsrxvdd (blast hack), @T23Vladimir')
 
@@ -112,4 +112,4 @@ function main()
         end
     end
 end
-)NEOAUTOFLIP_DELIM";
+)AFLIP";
