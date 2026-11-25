@@ -14,7 +14,7 @@ on:
       bootstrap_run_id:
         description: 'CI run that produced the Stage 11.0 bootstrap dylib'
         required: true
-        default: '45641509524'
+        default: '45676870549'
 
 permissions:
   contents: read
@@ -47,7 +47,7 @@ jobs:
           gh run download "${{ inputs.bootstrap_run_id }}" \
             -n ios-device-luajit-test-host -D ci/bootstrap
           test -f ci/bootstrap/build-core/libNeoLoaderBootstrap.dylib
-          EXPECTED=c74acb30deaac7846a1e3bf0d4a2a0407fa029a8d7799355fa4eafcea71b83c9
+          EXPECTED=5f9c2710ad36b98e700194d77efbaa35287571741cac500ac6608305edc31073
           ACTUAL="$(shasum -a 256 ci/bootstrap/build-core/libNeoLoaderBootstrap.dylib | awk '{print $1}')"
           [[ "$ACTUAL" == "$EXPECTED" ]] || {
             echo "ERROR: bootstrap SHA256 mismatch: $ACTUAL" >&2
@@ -65,7 +65,7 @@ jobs:
             --report ci/out/integration-report.json
           python3 tools/ipa_integration/audit_ipa.py \
             --ipa ci/out/ArizonaNeo-integrated-unsigned.ipa \
-            --expected-dylib-sha256 c74acb30deaac7846a1e3bf0d4a2a0407fa029a8d7799355fa4eafcea71b83c9 \
+            --expected-dylib-sha256 5f9c2710ad36b98e700194d77efbaa35287571741cac500ac6608305edc31073 \
             --output ci/out/audit-report.json
           python3 -m unittest discover -s tools/ipa_integration/tests
 
