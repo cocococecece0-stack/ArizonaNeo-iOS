@@ -20,6 +20,7 @@ using arizona_neo::runtime::LuaExecutionStatus;
 using arizona_neo::runtime::LuaJITHost;
 using arizona_neo::runtime::PortableScriptLoader;
 using arizona_neo::core::ScriptManager;
+using arizona_neo::core::ScriptMetadata;
 using arizona_neo::runtime::PortableScriptRuntime;
 
 static NSString *ANDString(const std::string &value) {
@@ -633,7 +634,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 ScriptManager manager;
                 manager.set_runtime(&runtime);
                 if (!fs.write_file("sm_valid.lua", "sm_valid_ok = 42\n").ok) { message = "write failed"; return false; }
-                ScriptManager::ScriptMetadata meta;
+                ScriptMetadata meta;
                 meta.id = "sm_valid";
                 meta.path = "sm_valid.lua";
                 if (!manager.register_script(meta).ok) { message = "register failed"; return false; }
@@ -655,7 +656,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 if (!fs.write_file("sm_a.lua", "sm_a_ok = 1\n").ok ||
                     !fs.write_file("sm_b.lua", "sm_b_ok = 2\n").ok) { message = "write failed"; return false; }
                 for (const char* id : {"sm_a","sm_b"}) {
-                    ScriptManager::ScriptMetadata meta;
+                    ScriptMetadata meta;
                     meta.id = id;
                     meta.path = std::string(id) + ".lua";
                     if (!manager.register_script(meta).ok) { message = "register failed"; return false; }
@@ -675,7 +676,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 ScriptManager manager;
                 manager.set_runtime(&runtime);
                 if (!fs.write_file("sm_reload.lua", "sm_reload_ok = 5\n").ok) { message = "write failed"; return false; }
-                ScriptManager::ScriptMetadata meta;
+                ScriptMetadata meta;
                 meta.id = "sm_reload";
                 meta.path = "sm_reload.lua";
                 if (!manager.register_script(meta).ok || !manager.load("sm_reload").ok) { message = "load failed"; return false; }
@@ -695,7 +696,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 ScriptManager manager;
                 manager.set_runtime(&runtime);
                 if (!fs.write_file("sm_stop.lua", "sm_stop_ok = 1\n").ok) { message = "write failed"; return false; }
-                ScriptManager::ScriptMetadata meta;
+                ScriptMetadata meta;
                 meta.id = "sm_stop";
                 meta.path = "sm_stop.lua";
                 if (!manager.register_script(meta).ok || !manager.load("sm_stop").ok) { message = "load failed"; return false; }
@@ -728,7 +729,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 PortableScriptRuntime runtime(loader);
                 ScriptManager manager;
                 manager.set_runtime(&runtime);
-                ScriptManager::ScriptMetadata meta;
+                ScriptMetadata meta;
                 meta.id = "sm_bad";
                 meta.path = "../outside.lua";
                 if (!manager.register_script(meta).ok) { message = "register failed"; return false; }
@@ -746,7 +747,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 ScriptManager manager;
                 manager.set_runtime(&runtime);
                 if (!fs.write_file("sm_err.lua", "error('sm_boom')\n").ok) { message = "write failed"; return false; }
-                ScriptManager::ScriptMetadata meta;
+                ScriptMetadata meta;
                 meta.id = "sm_err";
                 meta.path = "sm_err.lua";
                 if (!manager.register_script(meta).ok) { message = "register failed"; return false; }
@@ -755,7 +756,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 if (script_host.stack_top() != 0) { message = "stack not clean after error"; return false; }
                 // other script still works
                 if (!fs.write_file("sm_ok.lua", "sm_ok_ok = 7\n").ok) { message = "write failed"; return false; }
-                ScriptManager::ScriptMetadata meta2;
+                ScriptMetadata meta2;
                 meta2.id = "sm_ok";
                 meta2.path = "sm_ok.lua";
                 if (!manager.register_script(meta2).ok || !manager.load("sm_ok").ok || !manager.run("sm_ok").ok) { message = "survivor failed"; return false; }
@@ -771,7 +772,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 ScriptManager manager;
                 manager.set_runtime(&runtime);
                 if (!fs.write_file("sm_reinit.lua", "sm_reinit_ok = 3\n").ok) { message = "write failed"; return false; }
-                ScriptManager::ScriptMetadata meta;
+                ScriptMetadata meta;
                 meta.id = "sm_reinit";
                 meta.path = "sm_reinit.lua";
                 if (!manager.register_script(meta).ok || !manager.load("sm_reinit").ok) { message = "load failed"; return false; }
