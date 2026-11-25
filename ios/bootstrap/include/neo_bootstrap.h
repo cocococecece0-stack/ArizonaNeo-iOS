@@ -56,6 +56,7 @@ NEO_BOOTSTRAP_API int neo_bootstrap_shutdown(void);
 NEO_BOOTSTRAP_API int neo_bootstrap_get_status(neo_bootstrap_status_t* out_status);
 NEO_BOOTSTRAP_API const char* neo_bootstrap_get_version(void);
 NEO_BOOTSTRAP_API int neo_bootstrap_attach_host(const neo_bootstrap_host_interfaces_t* interfaces);
+NEO_BOOTSTRAP_API int neo_bootstrap_set_documents_root(const char* path);
 NEO_BOOTSTRAP_API int neo_bootstrap_get_marker_path(char* out_path, unsigned long long capacity);
 
 #ifdef __cplusplus

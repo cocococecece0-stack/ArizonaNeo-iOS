@@ -107,6 +107,7 @@ struct BootstrapState {
     bool runtime_available = false;
     bool game_capabilities_available = false;
     bool library_loaded = false;
+    std::string documents_root;
 
     std::unique_ptr<arizona_neo::core::EventBus> bus;
     std::unique_ptr<arizona_neo::core::Scheduler> scheduler;
@@ -172,7 +173,12 @@ NEO_BOOTSTRAP_API int neo_bootstrap_initialize(void) {
         bootstrap.scheduler = std::make_unique<arizona_neo::core::Scheduler>();
         bootstrap.manager = std::make_unique<arizona_neo::core::ScriptManager>();
 
-        const auto root = std::filesystem::temp_directory_path() / "arizona_neo_bootstrap";
+        std::filesystem::path root;
+        if (bootstrap.documents_root.empty()) {
+            root = std::filesystem::temp_directory_path() / "arizona_neo_bootstrap";
+        } else {
+            root = bootstrap.documents_root;
+        }
         bootstrap.fs = std::make_unique<arizona_neo::core::SandboxedFilesystem>(root, true);
 
 #if defined(ARIZONA_NEO_WITH_LUAJIT)
@@ -274,6 +280,21 @@ NEO_BOOTSTRAP_API int neo_bootstrap_get_marker_path(char* out_path, unsigned lon
     if (written < 0 || static_cast<unsigned long long>(written) >= capacity) {
         return NEO_BOOTSTRAP_INVALID_ARGUMENT;
     }
+    return NEO_BOOTSTRAP_OK;
+}
+
+NEO_BOOTSTRAP_API int neo_bootstrap_set_documents_root(const char* path) {
+    if (path == nullptr || path[0] == '\0') {
+        return NEO_BOOTSTRAP_INVALID_ARGUMENT;
+    }
+    auto& bootstrap = state();
+    std::lock_guard<std::mutex> lock(bootstrap.mutex);
+    if (bootstrap.state != NEO_BOOTSTRAP_NOT_STARTED &&
+        bootstrap.state != NEO_BOOTSTRAP_STOPPED) {
+        return NEO_BOOTSTRAP_INVALID_STATE;
+    }
+    bootstrap.documents_root = path;
+    write_diagnostic("DOCUMENTS_ROOT_SET", path);
     return NEO_BOOTSTRAP_OK;
 }
 
