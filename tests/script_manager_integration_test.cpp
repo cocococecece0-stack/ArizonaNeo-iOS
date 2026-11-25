@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 
 namespace {
@@ -145,6 +146,84 @@ int main() {
     }
     add_script(manager, fs, "empty", "empty.lua", "");
     CHECK(manager.load("empty").ok, "empty Lua file loads and executes");
+
+    // Multiple original NeoLoader modules with real require dependencies.
+    {
+        const char* module_names[] = {"sha256", "base64", "binaryheap",
+                                      "moonloader", "vector3d", "matrix3x3", "dkjson"};
+        SandboxedFilesystem module_fs(root, true);
+        for (const char* name : module_names) {
+            const std::string path = std::string("scripts/neo/modules/") + name + ".lua";
+            std::ifstream file(path, std::ios::binary);
+            std::string source((std::istreambuf_iterator<char>(file)),
+                               std::istreambuf_iterator<char>());
+            CHECK(!source.empty(), (std::string("module source ") + name).c_str());
+            CHECK(module_fs.write_file(std::string("modules/") + name + ".lua", source).ok,
+                  (std::string("write module ") + name).c_str());
+        }
+
+        arizona_neo::runtime::LuaLibraryPolicy module_policy;
+        module_policy.bit = true;
+        LuaJITHost module_host(module_policy);
+        module_host.set_module_source_reader(
+            [&module_fs](const std::string& requested, std::string& out) -> bool {
+                std::string name = requested;
+                if (name.rfind("lib.", 0) == 0) name = name.substr(4);
+                for (char& c : name) if (c == '.') c = '/';
+                const auto read = module_fs.read_file("modules/" + name + ".lua");
+                if (!read.ok) return false;
+                out = std::move(read.value);
+                return true;
+            });
+        CHECK(module_host.initialize(), "multi-module host initialize");
+
+        PortableScriptLoader module_loader(module_host, module_fs);
+        PortableScriptRuntime module_runtime(module_loader);
+        ScriptManager module_manager;
+        module_manager.set_runtime(&module_runtime);
+
+        std::size_t loaded = 0;
+        for (const char* name : module_names) {
+            ScriptMetadata meta;
+            meta.id = name;
+            meta.path = std::string("modules/") + name + ".lua";
+            CHECK(module_manager.register_script(meta).ok,
+                  (std::string("register module ") + name).c_str());
+            auto result = module_manager.load(name);
+            if (!result.ok) {
+                std::cerr << "MODULE LOAD ERR " << name << ": " << result.message << "\n";
+            }
+            CHECK(result.ok, (std::string("load module ") + name).c_str());
+            if (result.ok) ++loaded;
+        }
+        CHECK(loaded == sizeof(module_names) / sizeof(module_names[0]), "all modules loaded");
+
+        // Real dependency chain: moonloader requires vector3d + matrix3x3.
+        CHECK(module_host.execute_detailed(
+            "neo_dep_marker = (type(TAG) == 'table' and type(Vector3D) == 'function' "
+            "and type(matrix3x3) == 'function') and 1 or 0", "verify_deps").status ==
+            arizona_neo::runtime::LuaExecutionStatus::Success, "dependency verification executes");
+        CHECK(module_host.get_global_number("neo_dep_marker") == 1.0,
+              "moonloader require dependencies resolved");
+
+        // require caches modules: same table on second call.
+        CHECK(module_host.execute_detailed(
+            "neo_cache_marker = (require('sha256') == require('sha256')) and 1 or 0",
+            "verify_cache").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "cache verification executes");
+        CHECK(module_host.get_global_number("neo_cache_marker") == 1.0,
+              "require caches modules in package.loaded");
+
+        // Missing dependency is a clear error, caught by pcall.
+        CHECK(module_host.execute_detailed(
+            "local ok, err = pcall(require, 'missing_module_xyz'); "
+            "neo_missing_marker = (not ok and err ~= nil) and 1 or 0",
+            "verify_missing").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "missing module executes");
+        CHECK(module_host.get_global_number("neo_missing_marker") == 1.0,
+              "missing module reported as error");
+        CHECK(module_host.stack_top() == 0, "stack clean after multi-module execution");
+    }
 
     // 18 shutdown/reinitialization / 19 no double free / 20 unbound runtime.
     // Real original NeoLoader script (lib/sha256.lua) execution.

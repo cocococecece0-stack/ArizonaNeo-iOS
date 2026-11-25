@@ -103,6 +103,58 @@ int bridge_trampoline(lua_State* L) {
     return results;
 }
 
+// Sandboxed `require` implementation. All state is held by LuaJITHost (the
+// upvalue is a lightuserdata pointer to the host), so no C++ object with a
+// non-trivial destructor is alive when lua_error() longjmps.
+int module_require_closure(lua_State* L) {
+    auto* host = static_cast<LuaJITHost*>(lua_touserdata(L, lua_upvalueindex(1)));
+    std::size_t name_len = 0;
+    const char* requested = lua_tolstring(L, 1, &name_len);
+    if (host == nullptr || requested == nullptr || name_len == 0) {
+        lua_pushliteral(L, "require: module name required");
+        return lua_error(L);
+    }
+    char name[256];
+    const std::size_t copied = name_len < sizeof(name) - 1 ? name_len : sizeof(name) - 1;
+    std::memcpy(name, requested, copied);
+    name[copied] = '\0';
+
+    // Already loaded?
+    lua_getglobal(L, "package");
+    lua_getfield(L, -1, "loaded");
+    lua_getfield(L, -1, name);
+    if (!lua_isnil(L, -1)) {
+        return 1;
+    }
+    lua_pop(L, 3);
+
+    if (!host->read_module_source(name, host->module_buffer())) {
+        lua_pushfstring(L, "module '%s' not found in sandbox", name);
+        return lua_error(L);
+    }
+
+    char chunk[320];
+    std::snprintf(chunk, sizeof(chunk), "@module/%s", name);
+    const int load_status = luaL_loadbuffer(L, host->module_buffer().data(),
+                                            host->module_buffer().size(), chunk);
+    if (load_status != 0) {
+        return lua_error(L);
+    }
+    lua_pushstring(L, name);
+    const int call_status = lua_pcall(L, 1, 1, 0);
+    if (call_status != 0) {
+        return lua_error(L);
+    }
+
+    // Cache the module value in package.loaded; leave it on top as the result.
+    lua_getglobal(L, "package");
+    lua_getfield(L, -1, "loaded");
+    lua_pushvalue(L, -3);
+    lua_setfield(L, -2, name);
+    lua_pop(L, 2);
+    return 1;
+}
+
 } // namespace
 
 LuaJITHost::LuaJITHost() : LuaJITHost(LuaLibraryPolicy{}) {}
@@ -187,6 +239,11 @@ bool LuaJITHost::initialize() {
         }
 
         install_bridge();
+        if (module_reader_) {
+            lua_pushlightuserdata(state_, this);
+            lua_pushcclosure(state_, module_require_closure, 1);
+            lua_setglobal(state_, "require");
+        }
         initialized_ = true;
         return true;
     } catch (const std::exception& e) {
@@ -254,6 +311,15 @@ bool LuaJITHost::register_function(const char* name, LuaBridgeFunction function)
         register_bridge_entry(key.c_str(), inserted.first->second);
     }
     return true;
+}
+
+void LuaJITHost::set_module_source_reader(ModuleSourceReader reader) noexcept {
+    module_reader_ = std::move(reader);
+}
+
+bool LuaJITHost::read_module_source(const std::string& name, std::string& out) const noexcept {
+    if (!module_reader_) return false;
+    return module_reader_(name, out);
 }
 
 LuaExecutionResult LuaJITHost::execute_detailed(std::string_view source,

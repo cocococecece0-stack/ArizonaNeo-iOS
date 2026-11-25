@@ -8,6 +8,7 @@
 #include "arizona_neo/core/script_manager.hpp"
 #include "arizona_neo/runtime/portable_script_runtime.hpp"
 #include "NeoSha256Script.h"
+#include "NeoModules.h"
 
 #include <chrono>
 #include <cstdarg>
@@ -533,6 +534,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
             blocked("41_sm_stack", "Documents directory unavailable");
             blocked("42_sm_shutdown_reinit", "Documents directory unavailable");
             blocked("43_neo_script_execute", "Documents directory unavailable");
+            blocked("44_neo_multi_module", "Documents directory unavailable");
         } else {
             const std::filesystem::path root([[documents stringByAppendingPathComponent:
                                                @"ArizonaNeoDeviceTest/scripts"] UTF8String]);
@@ -811,6 +813,60 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 if (!manager.run("neo_sha256").ok) { message = "neo script run failed: " + manager.last_error(); return false; }
                 if (script_host.stack_top() != 0) { message = "stack not clean"; return false; }
                 return true;
+            });
+
+            // Multiple original NeoLoader modules with real require dependencies.
+            record("44_neo_multi_module", [&](std::string &message) -> bool {
+                arizona_neo::runtime::LuaLibraryPolicy policy;
+                policy.bit = true;
+                LuaJITHost script_host(policy);
+                script_host.set_module_source_reader([](const std::string& name, std::string& out) -> bool {
+                    return neo_module_source(name, out);
+                });
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                for (const auto& entry : NEO_MODULES) {
+                    if (!fs.write_file(std::string("modules/") + entry.name + ".lua", entry.source).ok) {
+                        message = std::string("write failed: ") + entry.name;
+                        return false;
+                    }
+                }
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                for (const auto& entry : NEO_MODULES) {
+                    ScriptMetadata meta;
+                    meta.id = entry.name;
+                    meta.path = std::string("modules/") + entry.name + ".lua";
+                    if (!manager.register_script(meta).ok) { message = "register failed"; return false; }
+                    auto r = manager.load(entry.name);
+                    if (!r.ok) { message = std::string("module load failed ") + entry.name + ": " + manager.last_error(); return false; }
+                }
+                const auto deps = script_host.execute_detailed(
+                    "neo_dep_marker = (type(TAG) == 'table' and type(Vector3D) == 'function' "
+                    "and type(matrix3x3) == 'function') and 1 or 0", "verify_deps");
+                if (deps.status != arizona_neo::runtime::LuaExecutionStatus::Success ||
+                    script_host.get_global_number("neo_dep_marker") != 1.0) {
+                    message = "require dependency chain failed";
+                    return false;
+                }
+                const auto cache = script_host.execute_detailed(
+                    "neo_cache_marker = (require('sha256') == require('sha256')) and 1 or 0", "verify_cache");
+                if (cache.status != arizona_neo::runtime::LuaExecutionStatus::Success ||
+                    script_host.get_global_number("neo_cache_marker") != 1.0) {
+                    message = "require cache failed";
+                    return false;
+                }
+                const auto missing = script_host.execute_detailed(
+                    "local ok, err = pcall(require, 'missing_module_xyz'); "
+                    "neo_missing_marker = (not ok and err ~= nil) and 1 or 0", "verify_missing");
+                if (missing.status != arizona_neo::runtime::LuaExecutionStatus::Success ||
+                    script_host.get_global_number("neo_missing_marker") != 1.0) {
+                    message = "missing module error handling failed";
+                    return false;
+                }
+                return script_host.stack_top() == 0;
             });
         }
     }

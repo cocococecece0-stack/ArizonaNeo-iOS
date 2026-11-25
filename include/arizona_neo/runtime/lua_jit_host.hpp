@@ -3,6 +3,7 @@
 #include "arizona_neo/core/lua_host.hpp"
 #include "arizona_neo/runtime/lua_runtime_contract.hpp"
 
+#include <functional>
 #include <map>
 #include <string>
 
@@ -45,6 +46,16 @@ public:
     // Functions registered before initialize() are installed at initialize().
     bool register_function(const char* name, LuaBridgeFunction function);
 
+    // Installs a sandboxed module source reader used by the `require` override.
+    // The reader maps a module name to source bytes; it must return false when
+    // the module is unavailable. Set before initialize() (or call again to
+    // replace). No unrestricted file or package searcher is used.
+    using ModuleSourceReader = std::function<bool(const std::string&, std::string&)>;
+    void set_module_source_reader(ModuleSourceReader reader) noexcept;
+    // Used by the sandboxed require closure (keeps buffers out of the C ABI frame).
+    bool read_module_source(const std::string& name, std::string& out) const noexcept;
+    std::string& module_buffer() noexcept { return module_scratch_; }
+
     // Human-readable error from the last failed operation.
     const std::string& last_error() const noexcept;
 
@@ -66,6 +77,8 @@ private:
     std::string last_error_;
     LuaLibraryPolicy policy_;
     std::map<std::string, LuaBridgeFunction> bridge_functions_;
+    ModuleSourceReader module_reader_;
+    std::string module_scratch_;
 };
 
 } // namespace arizona_neo::runtime
