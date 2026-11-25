@@ -56,6 +56,22 @@ if(ARIZONA_NEO_WITH_LUAJIT)
 endif()
 
 target_compile_features(arizona_neo_core PUBLIC cxx_std_17)
+set_target_properties(arizona_neo_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# Standalone iOS native bootstrap. Built as a shared library on every platform
+# so the same target produces a real ARM64 iOS dylib in CI and a testable .so
+# on Linux.
+add_library(neo_loader_bootstrap SHARED
+    ios/bootstrap/src/bootstrap.cpp
+)
+target_include_directories(neo_loader_bootstrap PUBLIC ios/bootstrap/include)
+target_link_libraries(neo_loader_bootstrap PRIVATE arizona_neo_core)
+target_compile_features(neo_loader_bootstrap PUBLIC cxx_std_17)
+set_target_properties(neo_loader_bootstrap PROPERTIES
+    OUTPUT_NAME "NeoLoaderBootstrap"
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
 
 include(CTest)
 if(BUILD_TESTING)

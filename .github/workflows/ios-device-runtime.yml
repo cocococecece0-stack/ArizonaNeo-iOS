@@ -125,6 +125,26 @@ jobs:
           grep -Fq 'LuaJITHost' ci/core-symbols.txt
           grep -Fq 'execute_detailed' ci/core-symbols.txt
           grep -Fq 'register_function' ci/core-symbols.txt
+          # Stage 11: build the standalone iOS bootstrap dylib from the same
+          # freshly built Core, not from a prebuilt artifact.
+          cmake --build ci/build-core --target neo_loader_bootstrap --parallel 2 2>&1 | tee ci/bootstrap-build.log
+          BOOTSTRAP_DYLIB="$GITHUB_WORKSPACE/ci/build-core/libNeoLoaderBootstrap.dylib"
+          test -f "$BOOTSTRAP_DYLIB"
+          file "$BOOTSTRAP_DYLIB" | tee ci/bootstrap-binary-info.txt
+          lipo -info "$BOOTSTRAP_DYLIB" | tee -a ci/bootstrap-binary-info.txt
+          otool -l "$BOOTSTRAP_DYLIB" | grep -A4 'cmd LC_BUILD_VERSION' > ci/bootstrap-build-version.txt
+          grep -q 'platform 2' ci/bootstrap-build-version.txt
+          grep -q 'minos 15.0' ci/bootstrap-build-version.txt
+          nm -g "$BOOTSTRAP_DYLIB" > ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_initialize' ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_shutdown' ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_get_status' ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_get_version' ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_attach_host' ci/bootstrap-symbols.txt
+          shasum -a 256 "$BOOTSTRAP_DYLIB" | awk '{print $1}' > ci/bootstrap-sha256.txt
+          cat ci/bootstrap-sha256.txt
+          echo "BOOTSTRAP_DYLIB=$BOOTSTRAP_DYLIB" >> "$GITHUB_ENV"
+
           echo "CORE_LIB=$CORE_LIB" >> "$GITHUB_ENV"
           echo "FRESH_CORE_BUILD_OK from $SOURCE_SHA"
 

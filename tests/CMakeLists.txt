@@ -1,3 +1,11 @@
+add_executable(ios_bootstrap_test ios_bootstrap_test.cpp)
+target_link_libraries(ios_bootstrap_test PRIVATE neo_loader_bootstrap)
+target_compile_features(ios_bootstrap_test PRIVATE cxx_std_17)
+if(ARIZONA_NEO_WITH_LUAJIT)
+    target_compile_definitions(ios_bootstrap_test PRIVATE ARIZONA_NEO_WITH_LUAJIT=1)
+endif()
+add_test(NAME ios_bootstrap_test COMMAND ios_bootstrap_test)
+
 add_executable(native_interface_test native_interface_test.cpp)
 target_link_libraries(native_interface_test PRIVATE arizona_neo_core)
 target_compile_features(native_interface_test PRIVATE cxx_std_17)
