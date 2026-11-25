@@ -72,7 +72,7 @@ set_target_properties(neo_loader_bootstrap PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
 )
-if(APPLE)
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR APPLE)
     # Keep the constructor from being dead-stripped by the Apple linker.
     target_link_options(neo_loader_bootstrap PRIVATE
         -Wl,-u,_neo_bootstrap_library_loaded)
