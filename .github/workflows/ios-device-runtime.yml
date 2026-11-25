@@ -143,6 +143,7 @@ jobs:
           grep -Fq '_neo_bootstrap_attach_host' ci/bootstrap-symbols.txt
           grep -Fq '_neo_bootstrap_get_marker_path' ci/bootstrap-symbols.txt
           otool -l "$BOOTSTRAP_DYLIB" > "$RUNNER_TEMP/bootstrap-load-commands.txt"
+          cp "$RUNNER_TEMP/bootstrap-load-commands.txt" ci/bootstrap-load-commands.txt
           grep -q '__mod_init_func' "$RUNNER_TEMP/bootstrap-load-commands.txt"
           shasum -a 256 "$BOOTSTRAP_DYLIB" | awk '{print $1}' > ci/bootstrap-sha256.txt
           cat ci/bootstrap-sha256.txt
@@ -150,6 +151,16 @@ jobs:
 
           echo "CORE_LIB=$CORE_LIB" >> "$GITHUB_ENV"
           echo "FRESH_CORE_BUILD_OK from $SOURCE_SHA"
+
+      - name: Upload bootstrap diagnostics (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-debug
+          path: |
+            ci/build-core/libNeoLoaderBootstrap.dylib
+            ci/bootstrap-load-commands.txt
+            ci/bootstrap-symbols.txt
 
       - name: Build unsigned iOS device test app
         run: |
