@@ -2,6 +2,7 @@
 #include "arizona_neo/core/filesystem.hpp"
 #include "arizona_neo/core/scheduler.hpp"
 #include "arizona_neo/runtime/neo_loader_api.hpp"
+#include "arizona_neo/game/game_bridge.hpp"
 #include "arizona_neo/core/script_manager.hpp"
 #include "arizona_neo/runtime/lua_jit_host.hpp"
 #include "arizona_neo/runtime/portable_script_loader.hpp"
@@ -46,6 +47,23 @@ void add_script(ScriptManager& manager, SandboxedFilesystem& fs,
     meta.path = file;
     CHECK(manager.register_script(meta).ok, ("register " + id).c_str());
 }
+
+// Test double for GameBridge Lua API verification; not a game API.
+class TestGameInterface final : public arizona_neo::game::GameInterface {
+public:
+    bool ready() const noexcept override { return true; }
+    std::vector<arizona_neo::game::GameCapability> supported() const override {
+        return {arizona_neo::game::GameCapability::Events};
+    }
+    std::optional<arizona_neo::game::GameEvent> poll_event() override {
+        if (events.empty()) return std::nullopt;
+        auto event = events.front();
+        events.erase(events.begin());
+        return event;
+    }
+    std::string lifecycle_state() const override { return "running"; }
+    std::vector<arizona_neo::game::GameEvent> events;
+};
 
 } // namespace
 
@@ -187,7 +205,9 @@ int main() {
 
         arizona_neo::core::EventBus bus;
         arizona_neo::core::Scheduler scheduler;
+        arizona_neo::game::GameBridge game_bridge(bus);
         arizona_neo::runtime::NeoLoaderAPI api(api_host, bus, scheduler, api_fs);
+        api.set_game_bridge(&game_bridge);
         CHECK(api.install(), "portable API install");
 
         PortableScriptLoader api_loader(api_host, api_fs);
@@ -287,6 +307,37 @@ int main() {
             "verify_jsoncfg").status == arizona_neo::runtime::LuaExecutionStatus::Success,
             "jsoncfg verification executes");
         CHECK(api_host.get_global_number("neo_json_marker") == 1.0, "portable jsoncfg works");
+
+        CHECK(api_host.execute_detailed(
+            "neo_game_marker = (neo_game_ready() == false and "
+            "neo_game_lifecycle() == 'unavailable') and 1 or 0",
+            "verify_game_unavailable").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "game unavailable state executes");
+        CHECK(api_host.get_global_number("neo_game_marker") == 1.0,
+              "game bridge reports unavailable without adapter");
+
+        auto game_caps = arizona_neo::game::default_capabilities();
+        game_caps.set(arizona_neo::game::GameCapability::Events,
+                      arizona_neo::game::CapabilityStatus::Available,
+                      "test double with confirmed adapter contract");
+        arizona_neo::game::GameBridge enabled_bridge(bus, game_caps);
+        TestGameInterface game_adapter;
+        game_adapter.events.push_back({arizona_neo::game::GameBridge::kEventName, "lua-game-event"});
+        enabled_bridge.attach(&game_adapter);
+        int game_events = 0;
+        const auto game_token = bus.subscribe(arizona_neo::game::GameBridge::kEventName,
+                                              [&](const std::string&) { ++game_events; });
+        api.set_game_bridge(&enabled_bridge);
+        CHECK(api_host.execute_detailed(
+            "neo_game_ready_marker = (neo_game_ready() == true and "
+            "neo_game_lifecycle() == 'running' and neo_game_pump() == 1) and 1 or 0",
+            "verify_game_adapter").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "game adapter verification executes");
+        CHECK(api_host.get_global_number("neo_game_ready_marker") == 1.0,
+              "game bridge forwards real adapter events to Lua");
+        CHECK(game_events == 1, "EventBus received game event from Lua-triggered pump");
+        CHECK(bus.unsubscribe(game_token), "game test subscription removed");
+        api.set_game_bridge(&game_bridge);
 
         CHECK(api_host.stack_top() == 0, "stack clean after portable API checks");
     }

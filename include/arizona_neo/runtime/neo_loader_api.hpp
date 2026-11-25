@@ -1,6 +1,7 @@
 #pragma once
 
 #include "arizona_neo/core/event_bus.hpp"
+#include "arizona_neo/game/game_bridge.hpp"
 #include "arizona_neo/core/filesystem.hpp"
 #include "arizona_neo/core/script_manager.hpp"
 #include "arizona_neo/core/scheduler.hpp"
@@ -48,6 +49,10 @@ public:
     // Optional non-owning ScriptManager binding used by the lifecycle queries.
     void set_script_manager(core::ScriptManager* manager) noexcept { manager_ = manager; }
 
+    // Optional non-owning GameBridge binding. When absent, game capabilities
+    // are reported as unavailable and no native call is attempted.
+    void set_game_bridge(game::GameBridge* bridge) noexcept { bridge_ = bridge; }
+
 private:
     int ref_function(int index);
     void call_ref(int ref);
@@ -71,6 +76,10 @@ private:
     int l_os_time(lua_State* L);
     int l_script_state(lua_State* L);
     int l_active_scripts(lua_State* L);
+    int l_game_ready(lua_State* L);
+    int l_game_capabilities(lua_State* L);
+    int l_game_pump(lua_State* L);
+    int l_game_lifecycle(lua_State* L);
 
 
     LuaJITHost& host_;
@@ -78,6 +87,7 @@ private:
     core::Scheduler& scheduler_;
     core::SandboxedFilesystem& fs_;
     core::ScriptManager* manager_ = nullptr;
+    game::GameBridge* bridge_ = nullptr;
     ScriptMeta meta_;
     std::vector<int> refs_;
     std::vector<core::EventBus::SubscriptionToken> tokens_;

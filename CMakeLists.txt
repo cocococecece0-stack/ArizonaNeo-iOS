@@ -41,6 +41,7 @@ add_library(arizona_neo_core STATIC
     src/core/filesystem.cpp
     src/core/scheduler.cpp
     src/core/event_bus.cpp
+    src/game/game_bridge.cpp
     src/core/script_manager.cpp
     ${LUAJIT_SOURCES}
 )

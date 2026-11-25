@@ -1,3 +1,8 @@
+add_executable(game_bridge_test game_bridge_test.cpp)
+target_link_libraries(game_bridge_test PRIVATE arizona_neo_core)
+target_compile_features(game_bridge_test PRIVATE cxx_std_17)
+add_test(NAME game_bridge_test COMMAND game_bridge_test)
+
 add_executable(version_test version_test.cpp)
 target_link_libraries(version_test PRIVATE arizona_neo_core)
 target_compile_features(version_test PRIVATE cxx_std_17)

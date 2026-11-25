@@ -248,6 +248,34 @@ int NeoLoaderAPI::l_active_scripts(lua_State* L) {
     return 1;
 }
 
+int NeoLoaderAPI::l_game_ready(lua_State* L) {
+    lua_pushboolean(L, bridge_ != nullptr && bridge_->ready() ? 1 : 0);
+    return 1;
+}
+
+int NeoLoaderAPI::l_game_capabilities(lua_State* L) {
+    lua_newtable(L);
+    if (bridge_ == nullptr) return 1;
+    for (const auto& entry : bridge_->capabilities().all()) {
+        lua_pushstring(L, arizona_neo::game::to_string(entry.first));
+        lua_pushstring(L, arizona_neo::game::to_string(entry.second.status));
+        lua_settable(L, -3);
+    }
+    return 1;
+}
+
+int NeoLoaderAPI::l_game_pump(lua_State* L) {
+    lua_pushnumber(L, bridge_ != nullptr
+        ? static_cast<lua_Number>(bridge_->pump_all()) : 0);
+    return 1;
+}
+
+int NeoLoaderAPI::l_game_lifecycle(lua_State* L) {
+    lua_pushstring(L, bridge_ != nullptr
+        ? bridge_->lifecycle_state().c_str() : "unavailable");
+    return 1;
+}
+
 bool NeoLoaderAPI::install() {
     if (installed_ || host_.state() == nullptr) return false;
 
@@ -273,6 +301,10 @@ bool NeoLoaderAPI::install() {
     host_.register_function("os.time", [this](lua_State* L) { return l_os_time(L); });
     host_.register_function("neo_script_state", [this](lua_State* L) { return l_script_state(L); });
     host_.register_function("neo_active_scripts", [this](lua_State* L) { return l_active_scripts(L); });
+    host_.register_function("neo_game_ready", [this](lua_State* L) { return l_game_ready(L); });
+    host_.register_function("neo_game_capabilities", [this](lua_State* L) { return l_game_capabilities(L); });
+    host_.register_function("neo_game_pump", [this](lua_State* L) { return l_game_pump(L); });
+    host_.register_function("neo_game_lifecycle", [this](lua_State* L) { return l_game_lifecycle(L); });
 
     installed_ = true;
     return true;
