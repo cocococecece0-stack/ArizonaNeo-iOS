@@ -36,7 +36,7 @@ IosDocumentsAccess::create_bookmark(const std::string& path) {
     @autoreleasepool {
         NSURL* url = [NSURL fileURLWithPath:std_to_ns(path)];
         NSError* error = nil;
-        NSData* data = [url bookmarkDataWithOptions:NSURLBookmarkCreationWithSecurityScope
+        NSData* data = [url bookmarkDataWithOptions:0
                         includingResourceValuesForKeys:nil
                         relativeToURL:nil
                         error:&error];
@@ -62,7 +62,7 @@ IosDocumentsAccess::resolve_bookmark(const std::string& bookmark) {
         BOOL stale = NO;
         NSError* error = nil;
         NSURL* url = [NSURL URLByResolvingBookmarkData:data
-                                             options:NSURLBookmarkResolutionWithSecurityScope
+                                             options:0
                                        relativeToURL:nil
                                  bookmarkDataIsStale:&stale
                                                error:&error];
