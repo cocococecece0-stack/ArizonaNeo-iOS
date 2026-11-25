@@ -45,5 +45,6 @@ if(ARIZONA_NEO_WITH_LUAJIT)
     add_executable(script_manager_integration_test script_manager_integration_test.cpp)
     target_link_libraries(script_manager_integration_test PRIVATE arizona_neo_core)
     target_compile_features(script_manager_integration_test PRIVATE cxx_std_17)
-    add_test(NAME script_manager_integration_test COMMAND script_manager_integration_test)
+    add_test(NAME script_manager_integration_test COMMAND script_manager_integration_test
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()

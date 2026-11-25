@@ -3,9 +3,11 @@
 #import <Foundation/Foundation.h>
 
 #include "arizona_neo/runtime/lua_jit_host.hpp"
+#include "arizona_neo/runtime/lua_runtime_contract.hpp"
 #include "arizona_neo/runtime/portable_script_loader.hpp"
 #include "arizona_neo/core/script_manager.hpp"
 #include "arizona_neo/runtime/portable_script_runtime.hpp"
+#include "NeoSha256Script.h"
 
 #include <chrono>
 #include <cstdarg>
@@ -530,6 +532,7 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
             blocked("40_sm_invalid_path", "Documents directory unavailable");
             blocked("41_sm_stack", "Documents directory unavailable");
             blocked("42_sm_shutdown_reinit", "Documents directory unavailable");
+            blocked("43_neo_script_execute", "Documents directory unavailable");
         } else {
             const std::filesystem::path root([[documents stringByAppendingPathComponent:
                                                @"ArizonaNeoDeviceTest/scripts"] UTF8String]);
@@ -785,6 +788,29 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                 const auto unbound = manager.run("sm_reinit");
                 if (unbound.ok || unbound.error != arizona_neo::core::CoreError::RuntimeUnavailable) { message = "unbound not RuntimeUnavailable"; return false; }
                 return script_host.stack_top() == 0;
+            });
+
+            // Real original NeoLoader script execution (lib/sha256.lua).
+            record("43_neo_script_execute", [&](std::string &message) -> bool {
+                arizona_neo::runtime::LuaLibraryPolicy policy;
+                policy.bit = true;
+                LuaJITHost script_host(policy);
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                if (!fs.write_file("neo_sha256_device.lua", NEO_SHA256_SCRIPT).ok) { message = "write failed"; return false; }
+                ScriptMetadata meta;
+                meta.id = "neo_sha256";
+                meta.path = "neo_sha256_device.lua";
+                if (!manager.register_script(meta).ok) { message = "register failed"; return false; }
+                auto load_result = manager.load("neo_sha256");
+                if (!load_result.ok) { message = "neo script load failed: " + manager.last_error(); return false; }
+                if (!manager.run("neo_sha256").ok) { message = "neo script run failed: " + manager.last_error(); return false; }
+                if (script_host.stack_top() != 0) { message = "stack not clean"; return false; }
+                return true;
             });
         }
     }

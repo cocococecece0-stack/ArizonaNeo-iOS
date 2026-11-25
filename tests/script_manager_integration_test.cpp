@@ -53,7 +53,9 @@ int main() {
     } cleanup{root};
 
     SandboxedFilesystem fs(root, true);
-    LuaJITHost host;
+    arizona_neo::runtime::LuaLibraryPolicy policy;
+    policy.bit = true;
+    LuaJITHost host(policy);
     CHECK(host.initialize(), "host initialize");
     PortableScriptLoader loader(host, fs);
     PortableScriptRuntime runtime(loader);
@@ -145,6 +147,25 @@ int main() {
     CHECK(manager.load("empty").ok, "empty Lua file loads and executes");
 
     // 18 shutdown/reinitialization / 19 no double free / 20 unbound runtime.
+    // Real original NeoLoader script (lib/sha256.lua) execution.
+    {
+        std::ifstream neo_file("scripts/neo/sha256.lua", std::ios::binary);
+        std::string neo_source((std::istreambuf_iterator<char>(neo_file)),
+                               std::istreambuf_iterator<char>());
+        CHECK(!neo_source.empty(), "original NeoLoader script file readable");
+        CHECK(fs.write_file("sha256_neo.lua", neo_source).ok, "write neo script into sandbox");
+        ScriptMetadata neo_meta;
+        neo_meta.id = "neo_sha256";
+        neo_meta.name = "NeoLoader sha256.lua";
+        neo_meta.path = "sha256_neo.lua";
+        CHECK(manager.register_script(neo_meta).ok, "register neo script");
+        auto neo_load = manager.load("neo_sha256");
+        if (!neo_load.ok) std::cerr << "NEO LOAD ERR: " << neo_load.message << "\n";
+        CHECK(neo_load.ok, "original NeoLoader script executes");
+        CHECK(host.stack_top() == 0, "stack clean after neo script");
+        CHECK(manager.run("neo_sha256").ok, "original NeoLoader script re-runs");
+    }
+
     // valid was unloaded (Discovered). Reload it back so it is Loaded before shutdown test.
     CHECK(manager.load("valid").ok, "reload-back valid before shutdown");
 
@@ -164,7 +185,9 @@ int main() {
 
     // Scope-based recreation checks ownership: no double-free of lua_State.
     {
-        LuaJITHost scoped_host;
+        arizona_neo::runtime::LuaLibraryPolicy scoped_policy;
+        scoped_policy.bit = true;
+        LuaJITHost scoped_host(scoped_policy);
         CHECK(scoped_host.initialize(), "scoped host initialize");
         SandboxedFilesystem scoped_fs(root, true);
         PortableScriptLoader scoped_loader(scoped_host, scoped_fs);
