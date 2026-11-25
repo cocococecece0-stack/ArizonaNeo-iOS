@@ -58,7 +58,7 @@ Bootstrap из Stage 11.0已于 изменяется: `neo_bootstrap_get_status(
 6. При краше прислать crash log — анализировать причину, не заявлять PASS.
 
 ## Git
-Branch `stage-7.1.7-device-validation`; `main` не изменён.
+Commit `deb12f3` — `feat(ios): integrate bootstrap dylib into original Arizona IPA`; branch `stage-7.1.7-device-validation`; `main` не изменён.
 
 ## Следующий шаг
 Получить реальный device report с признаком загрузки dylib и состоянием bootstrap; только после этого заявлять C/D.
