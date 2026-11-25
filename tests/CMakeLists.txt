@@ -1,3 +1,8 @@
+add_executable(user_documents_root_test user_documents_root_test.cpp)
+target_link_libraries(user_documents_root_test PRIVATE arizona_neo_core)
+target_compile_features(user_documents_root_test PRIVATE cxx_std_17)
+add_test(NAME user_documents_root_test COMMAND user_documents_root_test)
+
 add_test(NAME ipa_integration_tool_test
          COMMAND python3 -m unittest discover -s ${CMAKE_SOURCE_DIR}/tools/ipa_integration/tests
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

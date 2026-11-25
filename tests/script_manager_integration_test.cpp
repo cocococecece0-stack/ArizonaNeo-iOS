@@ -3,6 +3,7 @@
 #include "arizona_neo/core/scheduler.hpp"
 #include "arizona_neo/runtime/neo_loader_api.hpp"
 #include "arizona_neo/runtime/neo_loader_host.hpp"
+#include "arizona_neo/core/user_documents_root.hpp"
 #include "arizona_neo/game/game_bridge.hpp"
 #include "arizona_neo/game/graphics_failure_adapter.hpp"
 #include "arizona_neo/game/ios_native_interface.hpp"
@@ -183,6 +184,76 @@ int main() {
     }
     add_script(manager, fs, "empty", "empty.lua", "");
     CHECK(manager.load("empty").ok, "empty Lua file loads and executes");
+
+    // User-selected Documents/NeoLoader folder: scripts + lib require paths.
+    {
+        class LocalAccess final : public arizona_neo::core::DocumentsAccess {
+        public:
+            arizona_neo::core::Result<std::string> create_bookmark(const std::string& path) override {
+                return arizona_neo::core::Result<std::string>::success("bookmark:" + path);
+            }
+            arizona_neo::core::Result<std::string> resolve_bookmark(const std::string& value) override {
+                if (value.rfind("bookmark:", 0) != 0)
+                    return arizona_neo::core::Result<std::string>::failure(arizona_neo::core::CoreError::InvalidArgument, "bad bookmark");
+                return arizona_neo::core::Result<std::string>::success(value.substr(9));
+            }
+            void stop_access() noexcept override {}
+        };
+        class LocalStore final : public arizona_neo::core::BookmarkStore {
+        public:
+            arizona_neo::core::Result<void> save(const std::string&, const std::string&) override {
+                return arizona_neo::core::Result<void>::success();
+            }
+            arizona_neo::core::Result<std::string> load(const std::string&) const override {
+                return arizona_neo::core::Result<std::string>::failure(arizona_neo::core::CoreError::NotFound, "none");
+            }
+        };
+
+        const auto documents_root = std::filesystem::temp_directory_path() / "arizona_neo_documents_runtime";
+        std::error_code cleanup_error;
+        std::filesystem::remove_all(documents_root, cleanup_error);
+        std::filesystem::create_directories(documents_root, cleanup_error);
+        LocalAccess access;
+        LocalStore store;
+        arizona_neo::core::UserDocumentsRoot documents(access, store);
+        CHECK(documents.select(documents_root.string()).ok, "select user documents folder");
+        CHECK(documents.filesystem().write_file("lib/foo.lua",
+              "return { value = 7 }\n").ok, "write lib module");
+        CHECK(documents.filesystem().write_file("lib/bar/init.lua",
+              "return { value = 9 }\n").ok, "write lib init module");
+        CHECK(documents.filesystem().write_file("scripts/user.lua",
+              "local foo = require('foo'); local bar = require('bar'); "
+              "user_result = foo.value + bar.value\n").ok, "write user script");
+
+        LuaJITHost documents_host;
+        arizona_neo::core::EventBus documents_bus;
+        arizona_neo::core::Scheduler documents_scheduler;
+        arizona_neo::core::ScriptManager documents_manager;
+        arizona_neo::runtime::NeoLoaderHost documents_neo_host(
+            documents_host, documents_bus, documents_scheduler,
+            documents_manager, documents.filesystem());
+        documents_neo_host.attach_documents(documents);
+        CHECK(documents_host.initialize(), "documents host initialize");
+
+        const auto discovered = documents_neo_host.discover_scripts();
+        CHECK(discovered.size() == 1 && discovered[0] == "user.lua",
+              "user script discovered in selected folder");
+
+        PortableScriptLoader documents_loader(documents_host, documents.filesystem());
+        PortableScriptRuntime documents_runtime(documents_loader);
+        documents_manager.set_runtime(&documents_runtime);
+        arizona_neo::core::ScriptMetadata meta;
+        meta.id = "user_script";
+        meta.path = "scripts/user.lua";
+        CHECK(documents_manager.register_script(meta).ok, "register user script");
+        auto loaded = documents_manager.load("user_script");
+        if (!loaded.ok) std::cerr << "USER SCRIPT ERR: " << loaded.message << "\n";
+        CHECK(loaded.ok, "user script loads from selected folder");
+        CHECK(documents_host.get_global_number("user_result") == 16.0,
+              "require resolved from lib/?.lua and lib/?/init.lua");
+        CHECK(documents_host.stack_top() == 0, "stack clean after user script");
+        std::filesystem::remove_all(documents_root, cleanup_error);
+    }
 
     // Production host contract: confirmed function pointers drive start/stop.
     {

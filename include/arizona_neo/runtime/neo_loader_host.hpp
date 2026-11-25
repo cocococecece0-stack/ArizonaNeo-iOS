@@ -4,6 +4,7 @@
 #include "arizona_neo/core/filesystem.hpp"
 #include "arizona_neo/core/scheduler.hpp"
 #include "arizona_neo/core/script_manager.hpp"
+#include "arizona_neo/core/user_documents_root.hpp"
 #include "arizona_neo/game/game_bridge.hpp"
 #include "arizona_neo/game/graphics_failure_adapter.hpp"
 #include "arizona_neo/game/ios_native_interface.hpp"
@@ -11,6 +12,8 @@
 #include "arizona_neo/runtime/neo_loader_api.hpp"
 
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace arizona_neo::runtime {
 
@@ -52,14 +55,24 @@ public:
     void stop() noexcept;
 
     bool ready() const noexcept;
+
+    // Binds the user-selected Documents/NeoLoader folder. require() then
+    // resolves modules from lib/?.lua and lib/?/init.lua inside that folder.
+    void attach_documents(const core::UserDocumentsRoot& documents) noexcept;
+
+    // Returns relative script paths found in scripts/ of the bound folder.
+    std::vector<std::string> discover_scripts() const;
+
     game::GameBridge& bridge() noexcept { return bridge_; }
     NeoLoaderAPI& api() noexcept { return api_; }
 
 private:
+    LuaJITHost& host_;
     core::EventBus& bus_;
     game::GameBridge bridge_;
     NeoLoaderAPI api_;
     std::unique_ptr<game::GraphicsFailureAdapter> adapter_;
+    const core::UserDocumentsRoot* documents_ = nullptr;
     bool started_ = false;
 };
 
