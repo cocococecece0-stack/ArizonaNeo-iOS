@@ -16,3 +16,5 @@ DerivedData/
 .ios-luajit-validation/
 .luajit-ios-build/
 /ci/
+__pycache__/
+*.pyc

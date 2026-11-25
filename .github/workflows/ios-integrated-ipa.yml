@@ -1,0 +1,81 @@
+name: Integrated Arizona IPA (unsigned)
+
+# Packages an original Arizona iOS IPA with the Stage 11.0 bootstrap dylib.
+# The original IPA is supplied as a separate artifact and is never committed.
+# This workflow does NOT claim that dyld loaded the library on a device.
+
+on:
+  workflow_dispatch:
+    inputs:
+      original_ipa_artifact:
+        description: 'Artifact name containing the original Arizona IPA'
+        required: true
+        default: 'arizona-original-ipa'
+      bootstrap_run_id:
+        description: 'CI run that produced the Stage 11.0 bootstrap dylib'
+        required: true
+        default: '45641509524'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download original IPA artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci/original
+          gh run download --name "${{ inputs.original_ipa_artifact }}" --dir ci/original
+          IPA="$(find ci/original -type f -name '*.ipa' | head -1)"
+          test -n "$IPA"
+          cp "$IPA" ci/original/Arizona-input.ipa
+
+      - name: Download Stage 11.0 bootstrap dylib
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci/bootstrap
+          gh run download "${{ inputs.bootstrap_run_id }}" \
+            -n ios-device-luajit-test-host -D ci/bootstrap
+          test -f ci/bootstrap/build-core/libNeoLoaderBootstrap.dylib
+          EXPECTED=c74acb30deaac7846a1e3bf0d4a2a0407fa029a8d7799355fa4eafcea71b83c9
+          ACTUAL="$(shasum -a 256 ci/bootstrap/build-core/libNeoLoaderBootstrap.dylib | awk '{print $1}')"
+          [[ "$ACTUAL" == "$EXPECTED" ]] || {
+            echo "ERROR: bootstrap SHA256 mismatch: $ACTUAL" >&2
+            exit 1
+          }
+
+      - name: Integrate and audit
+        run: |
+          set -euo pipefail
+          mkdir -p ci/out
+          python3 tools/ipa_integration/integrate_ipa.py \
+            --ipa ci/original/Arizona-input.ipa \
+            --dylib ci/bootstrap/build-core/libNeoLoaderBootstrap.dylib \
+            --output ci/out/ArizonaNeo-integrated-unsigned.ipa \
+            --report ci/out/integration-report.json
+          python3 tools/ipa_integration/audit_ipa.py \
+            --ipa ci/out/ArizonaNeo-integrated-unsigned.ipa \
+            --expected-dylib-sha256 c74acb30deaac7846a1e3bf0d4a2a0407fa029a8d7799355fa4eafcea71b83c9 \
+            --output ci/out/audit-report.json
+          python3 -m unittest discover -s tools/ipa_integration/tests
+
+      - name: Upload integrated IPA and reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: arizona-integrated-unsigned-ipa
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            ci/out/ArizonaNeo-integrated-unsigned.ipa
+            ci/out/integration-report.json
+            ci/out/audit-report.json

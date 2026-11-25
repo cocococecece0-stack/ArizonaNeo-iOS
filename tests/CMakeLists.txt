@@ -1,3 +1,6 @@
+add_test(NAME ipa_integration_tool_test
+         COMMAND python3 -m unittest discover -s ${CMAKE_SOURCE_DIR}/tools/ipa_integration/tests
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 add_executable(ios_bootstrap_test ios_bootstrap_test.cpp)
 target_link_libraries(ios_bootstrap_test PRIVATE neo_loader_bootstrap)
 target_compile_features(ios_bootstrap_test PRIVATE cxx_std_17)
