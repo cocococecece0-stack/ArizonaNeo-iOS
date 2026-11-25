@@ -4,6 +4,8 @@
 
 #include "arizona_neo/runtime/lua_jit_host.hpp"
 #include "arizona_neo/runtime/portable_script_loader.hpp"
+#include "arizona_neo/core/script_manager.hpp"
+#include "arizona_neo/runtime/portable_script_runtime.hpp"
 
 #include <chrono>
 #include <cstdarg>
@@ -17,6 +19,8 @@ using arizona_neo::core::SandboxedFilesystem;
 using arizona_neo::runtime::LuaExecutionStatus;
 using arizona_neo::runtime::LuaJITHost;
 using arizona_neo::runtime::PortableScriptLoader;
+using arizona_neo::core::ScriptManager;
+using arizona_neo::runtime::PortableScriptRuntime;
 
 static NSString *ANDString(const std::string &value) {
     return [NSString stringWithUTF8String:value.c_str()];
@@ -517,6 +521,14 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
             blocked("32_portable_invalid_path", "Documents directory unavailable");
             blocked("33_portable_unload_reload", "Documents directory unavailable");
             blocked("34_portable_disabled_libs", "Documents directory unavailable");
+            blocked("35_sm_load_run", "Documents directory unavailable");
+            blocked("36_sm_multiple", "Documents directory unavailable");
+            blocked("37_sm_reload", "Documents directory unavailable");
+            blocked("38_sm_stop", "Documents directory unavailable");
+            blocked("39_sm_unknown", "Documents directory unavailable");
+            blocked("40_sm_invalid_path", "Documents directory unavailable");
+            blocked("41_sm_stack", "Documents directory unavailable");
+            blocked("42_sm_shutdown_reinit", "Documents directory unavailable");
         } else {
             const std::filesystem::path root([[documents stringByAppendingPathComponent:
                                                @"ArizonaNeoDeviceTest/scripts"] UTF8String]);
@@ -609,6 +621,169 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                     return false;
                 }
                 return script_host.get_global_number("device_no_libs") == 1.0;
+            });
+
+            // Stage 7.2.3: ScriptManager integration over PortableScriptLoader.
+            record("35_sm_load_run", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                if (!fs.write_file("sm_valid.lua", "sm_valid_ok = 42\n").ok) { message = "write failed"; return false; }
+                ScriptManager::ScriptMetadata meta;
+                meta.id = "sm_valid";
+                meta.path = "sm_valid.lua";
+                if (!manager.register_script(meta).ok) { message = "register failed"; return false; }
+                if (!manager.load("sm_valid").ok) { message = "load failed: " + manager.last_error(); return false; }
+                if (!manager.run("sm_valid").ok) { message = "run failed: " + manager.last_error(); return false; }
+                if (script_host.get_global_number("sm_valid_ok") != 42.0) { message = "result wrong"; return false; }
+                if (script_host.stack_top() != 0) { message = "stack not clean"; return false; }
+                return true;
+            });
+
+            record("36_sm_multiple", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                if (!fs.write_file("sm_a.lua", "sm_a_ok = 1\n").ok ||
+                    !fs.write_file("sm_b.lua", "sm_b_ok = 2\n").ok) { message = "write failed"; return false; }
+                for (const char* id : {"sm_a","sm_b"}) {
+                    ScriptManager::ScriptMetadata meta;
+                    meta.id = id;
+                    meta.path = std::string(id) + ".lua";
+                    if (!manager.register_script(meta).ok) { message = "register failed"; return false; }
+                    if (!manager.load(id).ok) { message = std::string("load failed: ") + manager.last_error(); return false; }
+                }
+                if (manager.active_count() != 2) { message = "active count wrong"; return false; }
+                return script_host.get_global_number("sm_a_ok") == 1.0 &&
+                       script_host.get_global_number("sm_b_ok") == 2.0;
+            });
+
+            record("37_sm_reload", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                if (!fs.write_file("sm_reload.lua", "sm_reload_ok = 5\n").ok) { message = "write failed"; return false; }
+                ScriptManager::ScriptMetadata meta;
+                meta.id = "sm_reload";
+                meta.path = "sm_reload.lua";
+                if (!manager.register_script(meta).ok || !manager.load("sm_reload").ok) { message = "load failed"; return false; }
+                // update file content then reload
+                if (!fs.write_file("sm_reload.lua", "sm_reload_ok = 9\n").ok) { message = "rewrite failed"; return false; }
+                // manager.reload uses loader.reload which re-reads original cached source? check semantics
+                if (!manager.reload("sm_reload").ok) { message = "reload failed: " + manager.last_error(); return false; }
+                return script_host.get_global_number("sm_reload_ok") == 9.0;
+            });
+
+            record("38_sm_stop", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                if (!fs.write_file("sm_stop.lua", "sm_stop_ok = 1\n").ok) { message = "write failed"; return false; }
+                ScriptManager::ScriptMetadata meta;
+                meta.id = "sm_stop";
+                meta.path = "sm_stop.lua";
+                if (!manager.register_script(meta).ok || !manager.load("sm_stop").ok) { message = "load failed"; return false; }
+                if (!manager.stop("sm_stop").ok) { message = "stop failed"; return false; }
+                if (manager.run("sm_stop").ok) { message = "stopped script still runs"; return false; }
+                if (manager.stop("sm_stop").ok) { message = "repeated stop accepted"; return false; }
+                return true;
+            });
+
+            record("39_sm_unknown", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                if (manager.run("nope").error != arizona_neo::core::CoreError::NotFoundScript) { message = "run unknown wrong error"; return false; }
+                if (manager.load("nope").error != arizona_neo::core::CoreError::NotFoundScript) { message = "load unknown wrong error"; return false; }
+                if (manager.unload("nope").error != arizona_neo::core::CoreError::NotFoundScript) { message = "unload unknown wrong error"; return false; }
+                if (manager.reload("nope").error != arizona_neo::core::CoreError::NotFoundScript) { message = "reload unknown wrong error"; return false; }
+                return true;
+            });
+
+            record("40_sm_invalid_path", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                ScriptManager::ScriptMetadata meta;
+                meta.id = "sm_bad";
+                meta.path = "../outside.lua";
+                if (!manager.register_script(meta).ok) { message = "register failed"; return false; }
+                const auto r = manager.load("sm_bad");
+                if (r.ok || r.error != arizona_neo::core::CoreError::PathTraversal) { message = "path traversal not rejected"; return false; }
+                return true;
+            });
+
+            record("41_sm_stack", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                if (!fs.write_file("sm_err.lua", "error('sm_boom')\n").ok) { message = "write failed"; return false; }
+                ScriptManager::ScriptMetadata meta;
+                meta.id = "sm_err";
+                meta.path = "sm_err.lua";
+                if (!manager.register_script(meta).ok) { message = "register failed"; return false; }
+                const auto r = manager.load("sm_err");
+                if (r.ok) { message = "error script loaded"; return false; }
+                if (script_host.stack_top() != 0) { message = "stack not clean after error"; return false; }
+                // other script still works
+                if (!fs.write_file("sm_ok.lua", "sm_ok_ok = 7\n").ok) { message = "write failed"; return false; }
+                ScriptManager::ScriptMetadata meta2;
+                meta2.id = "sm_ok";
+                meta2.path = "sm_ok.lua";
+                if (!manager.register_script(meta2).ok || !manager.load("sm_ok").ok || !manager.run("sm_ok").ok) { message = "survivor failed"; return false; }
+                return script_host.get_global_number("sm_ok_ok") == 7.0;
+            });
+
+            record("42_sm_shutdown_reinit", [&](std::string &message) -> bool {
+                LuaJITHost script_host;
+                if (!script_host.initialize()) { message = "host init failed"; return false; }
+                SandboxedFilesystem fs(root, true);
+                PortableScriptLoader loader(script_host, fs);
+                PortableScriptRuntime runtime(loader);
+                ScriptManager manager;
+                manager.set_runtime(&runtime);
+                if (!fs.write_file("sm_reinit.lua", "sm_reinit_ok = 3\n").ok) { message = "write failed"; return false; }
+                ScriptManager::ScriptMetadata meta;
+                meta.id = "sm_reinit";
+                meta.path = "sm_reinit.lua";
+                if (!manager.register_script(meta).ok || !manager.load("sm_reinit").ok) { message = "load failed"; return false; }
+                script_host.shutdown();
+                if (manager.run("sm_reinit").ok) { message = "ran after shutdown"; return false; }
+                if (!script_host.initialize()) { message = "reinit failed"; return false; }
+                if (!manager.reload("sm_reinit").ok) { message = "reload recovery failed: " + manager.last_error(); return false; }
+                if (!manager.run("sm_reinit").ok) { message = "run after reinit failed"; return false; }
+                manager.clear_runtime();
+                const auto unbound = manager.run("sm_reinit");
+                if (unbound.ok || unbound.error != arizona_neo::core::CoreError::RuntimeUnavailable) { message = "unbound not RuntimeUnavailable"; return false; }
+                return script_host.stack_top() == 0;
             });
         }
     }

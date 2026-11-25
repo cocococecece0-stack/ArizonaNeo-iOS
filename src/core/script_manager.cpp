@@ -51,6 +51,14 @@ Result<void> ScriptManager::unregister(const std::string& id) {
     if (it == scripts_.end()) {
         return Result<void>::failure(CoreError::NotFoundScript, "script not found: " + id);
     }
+    if (runtime_ != nullptr &&
+        (it->second.state == ScriptState::Loaded || it->second.state == ScriptState::Running)) {
+        const auto unloaded = runtime_->unload(id);
+        last_error_ = runtime_->last_error();
+        if (!unloaded.ok) {
+            return Result<void>::failure(unloaded.error, unloaded.message);
+        }
+    }
     scripts_.erase(it);
     return Result<void>::success();
 }
@@ -89,15 +97,68 @@ Result<void> ScriptManager::set_state(const std::string& id, ScriptState new_sta
     return Result<void>::success();
 }
 
+void ScriptManager::set_runtime(ScriptRuntime* runtime) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    runtime_ = runtime;
+}
+
+void ScriptManager::clear_runtime() noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    runtime_ = nullptr;
+}
+
+Result<void> ScriptManager::load(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = scripts_.find(id);
+    if (it == scripts_.end()) {
+        return Result<void>::failure(CoreError::NotFoundScript, "script not found: " + id);
+    }
+    if (it->second.state == ScriptState::Loaded ||
+        it->second.state == ScriptState::Running ||
+        it->second.state == ScriptState::Stopped) {
+        return Result<void>::failure(CoreError::Duplicate, "script already loaded: " + id);
+    }
+    if (runtime_ == nullptr) {
+        return Result<void>::failure(CoreError::RuntimeUnavailable,
+                                     "Lua runtime is not available; cannot load script: " + id);
+    }
+    const std::string path = it->second.metadata.path.string();
+    if (path.empty()) {
+        return Result<void>::failure(CoreError::InvalidArgument,
+                                     "script path is empty: " + id);
+    }
+    const auto result = runtime_->load(id, path);
+    last_error_ = runtime_->last_error();
+    if (!result.ok) {
+        it->second.state = ScriptState::Failed;
+        return result;
+    }
+    it->second.state = ScriptState::Loaded;
+    return Result<void>::success();
+}
+
 Result<void> ScriptManager::run(const std::string& id) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = scripts_.find(id);
     if (it == scripts_.end()) {
         return Result<void>::failure(CoreError::NotFoundScript, "script not found: " + id);
     }
-    // No Lua runtime available: do not fake execution.
-    return Result<void>::failure(CoreError::RuntimeUnavailable,
-        "Lua runtime is not available; cannot run script: " + id);
+    if (it->second.state != ScriptState::Loaded && it->second.state != ScriptState::Running) {
+        return Result<void>::failure(CoreError::InvalidTransition,
+                                     "script is not loaded: " + id);
+    }
+    if (runtime_ == nullptr) {
+        // Preserve the original contract when no runtime is bound.
+        return Result<void>::failure(CoreError::RuntimeUnavailable,
+            "Lua runtime is not available; cannot run script: " + id);
+    }
+    const auto result = runtime_->execute(id);
+    last_error_ = runtime_->last_error();
+    if (!result.ok) {
+        it->second.state = ScriptState::Failed;
+        return result;
+    }
+    return Result<void>::success();
 }
 
 Result<void> ScriptManager::stop(const std::string& id) {
@@ -106,11 +167,63 @@ Result<void> ScriptManager::stop(const std::string& id) {
     if (it == scripts_.end()) {
         return Result<void>::failure(CoreError::NotFoundScript, "script not found: " + id);
     }
-    if (it->second.state != ScriptState::Running) {
+    if (it->second.state != ScriptState::Loaded && it->second.state != ScriptState::Running) {
         return Result<void>::failure(CoreError::InvalidTransition, "script is not running: " + id);
     }
+    // No coroutine/task ownership exists: this only prevents further run()
+    // calls. It does not interrupt code that is already executing.
     it->second.state = ScriptState::Stopped;
     return Result<void>::success();
+}
+
+Result<void> ScriptManager::unload(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = scripts_.find(id);
+    if (it == scripts_.end()) {
+        return Result<void>::failure(CoreError::NotFoundScript, "script not found: " + id);
+    }
+    if (runtime_ != nullptr &&
+        (it->second.state == ScriptState::Loaded || it->second.state == ScriptState::Running)) {
+        const auto result = runtime_->unload(id);
+        last_error_ = runtime_->last_error();
+        if (!result.ok) {
+            return result;
+        }
+    }
+    it->second.state = ScriptState::Discovered;
+    return Result<void>::success();
+}
+
+Result<void> ScriptManager::reload(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = scripts_.find(id);
+    if (it == scripts_.end()) {
+        return Result<void>::failure(CoreError::NotFoundScript, "script not found: " + id);
+    }
+    if (runtime_ == nullptr) {
+        return Result<void>::failure(CoreError::RuntimeUnavailable,
+                                     "Lua runtime is not available; cannot reload script: " + id);
+    }
+    const auto result = runtime_->reload(id);
+    last_error_ = runtime_->last_error();
+    if (!result.ok) {
+        it->second.state = ScriptState::Failed;
+        return result;
+    }
+    it->second.state = ScriptState::Loaded;
+    return Result<void>::success();
+}
+
+std::size_t ScriptManager::active_count() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::size_t count = 0;
+    for (const auto& entry : scripts_) {
+        if (entry.second.state == ScriptState::Loaded ||
+            entry.second.state == ScriptState::Running) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 } // namespace arizona_neo::core

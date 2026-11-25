@@ -29,6 +29,7 @@ if(ARIZONA_NEO_WITH_LUAJIT)
     set(LUAJIT_SOURCES
         src/runtime/lua_jit_host.cpp
         src/runtime/portable_script_loader.cpp
+        src/runtime/portable_script_runtime.cpp
     )
 endif()
 
