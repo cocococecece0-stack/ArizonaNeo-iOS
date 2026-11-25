@@ -212,6 +212,26 @@ int NeoLoaderAPI::l_fs_exists(lua_State* L) {
     return 1;
 }
 
+int NeoLoaderAPI::l_fs_list(lua_State* L) {
+    const char* path = arg_string(L, 1);
+    lua_newtable(L);
+    if (path == nullptr) return 1;
+    const auto listed = fs_.list_directory(path);
+    if (!listed.ok) return 1;
+    for (std::size_t i = 0; i < listed.value.size(); ++i) {
+        lua_pushinteger(L, static_cast<lua_Integer>(i + 1));
+        lua_pushstring(L, listed.value[i].c_str());
+        lua_settable(L, -3);
+    }
+    return 1;
+}
+
+int NeoLoaderAPI::l_fs_mkdir(lua_State* L) {
+    const char* path = arg_string(L, 1);
+    lua_pushboolean(L, path != nullptr && fs_.create_directories(path).ok ? 1 : 0);
+    return 1;
+}
+
 int NeoLoaderAPI::l_os_clock(lua_State* L) {
     static const auto start = std::chrono::steady_clock::now();
     const auto elapsed = std::chrono::duration<double>(
@@ -295,6 +315,8 @@ bool NeoLoaderAPI::install() {
     host_.register_function("neo_fs_read", [this](lua_State* L) { return l_fs_read(L); });
     host_.register_function("neo_fs_write", [this](lua_State* L) { return l_fs_write(L); });
     host_.register_function("neo_fs_exists", [this](lua_State* L) { return l_fs_exists(L); });
+    host_.register_function("neo_fs_list", [this](lua_State* L) { return l_fs_list(L); });
+    host_.register_function("neo_fs_mkdir", [this](lua_State* L) { return l_fs_mkdir(L); });
 
     // Restricted os subset: no execute/remove/rename, no environment access.
     host_.register_function("os.clock", [this](lua_State* L) { return l_os_clock(L); });

@@ -952,6 +952,16 @@ static void ANDSetMessage(std::string &out, NSString *format, ...) {
                     script_host.get_global_number("neo_cfg_marker") != 1.0) {
                     message = "sandboxed config failed"; return false;
                 }
+                const auto lfs_check = script_host.execute_detailed(
+                    "local lfs_mod = require('lfs'); "
+                    "neo_fs_write('config/lfs_device.txt', 'x'); "
+                    "local attrs = lfs_mod.attributes('config/lfs_device.txt'); "
+                    "neo_lfs_marker = (type(attrs) == 'table' and attrs.mode == 'file') and 1 or 0",
+                    "verify_lfs");
+                if (lfs_check.status != arizona_neo::runtime::LuaExecutionStatus::Success ||
+                    script_host.get_global_number("neo_lfs_marker") != 1.0) {
+                    message = "portable lfs failed"; return false;
+                }
                 return script_host.stack_top() == 0;
             });
 

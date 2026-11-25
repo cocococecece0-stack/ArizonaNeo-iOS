@@ -228,7 +228,7 @@ int main() {
     {
         const char* module_names[] = {"sha256", "base64", "binaryheap", "moonloader",
                                       "vector3d", "matrix3x3", "dkjson", "encoding", "inicfg",
-                                      "md5", "basexx", "bitex", "vkeys", "timerwheel", "jsoncfg"};
+                                      "md5", "basexx", "bitex", "vkeys", "timerwheel", "jsoncfg", "lfs"};
         SandboxedFilesystem api_fs(root, true);
         for (const char* name : module_names) {
             std::ifstream file(std::string("scripts/neo/modules/") + name + ".lua", std::ios::binary);
@@ -363,6 +363,16 @@ int main() {
             "verify_jsoncfg").status == arizona_neo::runtime::LuaExecutionStatus::Success,
             "jsoncfg verification executes");
         CHECK(api_host.get_global_number("neo_json_marker") == 1.0, "portable jsoncfg works");
+
+        CHECK(api_host.execute_detailed(
+            "local lfs_mod = require('lfs'); "
+            "neo_fs_write('config/lfs_test.txt', 'x'); "
+            "local attrs = lfs_mod.attributes('config/lfs_test.txt'); "
+            "neo_lfs_marker = (type(attrs) == 'table' and attrs.mode == 'file') and 1 or 0",
+            "verify_lfs").status == arizona_neo::runtime::LuaExecutionStatus::Success,
+            "lfs verification executes");
+        CHECK(api_host.get_global_number("neo_lfs_marker") == 1.0,
+              "portable lfs works through sandbox");
 
         CHECK(api_host.execute_detailed(
             "neo_game_marker = (neo_game_ready() == false and "
