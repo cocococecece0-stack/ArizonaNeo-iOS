@@ -58,7 +58,8 @@ void diagnostic_log(const char* event) {
 #endif
 }
 
-__attribute__((constructor)) __attribute__((used))
+extern "C" __attribute__((constructor)) __attribute__((used))
+__attribute__((visibility("default")))
 void neo_bootstrap_library_loaded() {
     // Only record the fact that dyld executed this library's initializer.
     // No LuaJIT, Core or host objects are created here.
