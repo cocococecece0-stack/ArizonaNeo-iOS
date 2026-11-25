@@ -57,7 +57,7 @@ def has_mod_init_func(data):
             sect_pos = pos + 72
             for _ in range(nsects):
                 name = data[sect_pos:sect_pos + 16].split(b"\0")[0]
-                if name == b"__mod_init_func":
+                if name in (b"__mod_init_func", b"__init_offsets"):
                     return True
                 sect_pos += 80
         pos += cmdsize
