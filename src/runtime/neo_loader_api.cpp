@@ -296,6 +296,21 @@ int NeoLoaderAPI::l_game_lifecycle(lua_State* L) {
     return 1;
 }
 
+int NeoLoaderAPI::l_log(lua_State* L) {
+    const char* message = arg_string(L, 1);
+    if (message == nullptr) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    std::string existing;
+    const auto read = fs_.read_file("logs/neoloader.log");
+    if (read.ok) existing = read.value;
+    const auto result = fs_.write_file("logs/neoloader.log",
+                                       existing + std::string(message) + "\n");
+    lua_pushboolean(L, result.ok ? 1 : 0);
+    return 1;
+}
+
 bool NeoLoaderAPI::install() {
     if (installed_ || host_.state() == nullptr) return false;
 
@@ -315,6 +330,7 @@ bool NeoLoaderAPI::install() {
     host_.register_function("neo_fs_read", [this](lua_State* L) { return l_fs_read(L); });
     host_.register_function("neo_fs_write", [this](lua_State* L) { return l_fs_write(L); });
     host_.register_function("neo_fs_exists", [this](lua_State* L) { return l_fs_exists(L); });
+    host_.register_function("neo_log", [this](lua_State* L) { return l_log(L); });
     host_.register_function("neo_fs_list", [this](lua_State* L) { return l_fs_list(L); });
     host_.register_function("neo_fs_mkdir", [this](lua_State* L) { return l_fs_mkdir(L); });
 

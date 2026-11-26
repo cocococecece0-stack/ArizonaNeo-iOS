@@ -72,6 +72,7 @@ private:
     int l_fs_read(lua_State* L);
     int l_fs_write(lua_State* L);
     int l_fs_exists(lua_State* L);
+    int l_log(lua_State* L);
     int l_fs_list(lua_State* L);
     int l_fs_mkdir(lua_State* L);
     int l_os_clock(lua_State* L);
