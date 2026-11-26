@@ -21,7 +21,7 @@ const char* arg_string(lua_State* L, int index) {
 
 } // namespace
 
-NeoLoaderAPI::NeoLoaderAPI(LuaJITHost& host,
+NeoLoaderAPI::NeoLoaderAPI(core::LuaHost& host,
                            core::EventBus& bus,
                            core::Scheduler& scheduler,
                            core::SandboxedFilesystem& fs)

@@ -9,7 +9,7 @@
 
 namespace arizona_neo::runtime {
 
-NeoLoaderHost::NeoLoaderHost(LuaJITHost& host,
+NeoLoaderHost::NeoLoaderHost(core::LuaHost& host,
                              core::EventBus& bus,
                              core::Scheduler& scheduler,
                              core::ScriptManager& manager,

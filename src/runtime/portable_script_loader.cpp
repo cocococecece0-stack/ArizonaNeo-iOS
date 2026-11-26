@@ -1,10 +1,8 @@
-#if defined(ARIZONA_NEO_WITH_LUAJIT)
-
 #include "arizona_neo/runtime/portable_script_loader.hpp"
 
 namespace arizona_neo::runtime {
 
-PortableScriptLoader::PortableScriptLoader(LuaJITHost& host,
+PortableScriptLoader::PortableScriptLoader(core::LuaHost& host,
                                            core::SandboxedFilesystem scripts)
     : host_(host), scripts_(std::move(scripts)) {}
 
@@ -141,4 +139,3 @@ std::size_t PortableScriptLoader::active_count() const noexcept {
 
 } // namespace arizona_neo::runtime
 
-#endif // ARIZONA_NEO_WITH_LUAJIT

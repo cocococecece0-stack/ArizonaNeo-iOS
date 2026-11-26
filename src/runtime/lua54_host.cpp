@@ -11,6 +11,7 @@ extern "C" {
 #include <cstdio>
 #include <cstring>
 #include <exception>
+#include <cstring>
 #include <map>
 #include <string>
 #include <utility>
@@ -138,6 +139,9 @@ bool Lua54Host::initialize() {
         luaL_dostring(state_, "if type(load) == 'function' then loadstring = load end");
 
         install_bridge();
+        if (module_reader_) {
+            set_module_source_reader(module_reader_);
+        }
         initialized_ = true;
         return true;
     } catch (const std::exception& e) {
@@ -184,6 +188,46 @@ bool Lua54Host::register_bridge_entry(const char* full_name, LuaBridgeFunction& 
 void Lua54Host::install_bridge() {
     for (auto& entry : bridge_functions_) {
         register_bridge_entry(entry.first.c_str(), entry.second);
+    }
+}
+
+bool Lua54Host::read_module_source(const std::string& name, std::string& out) const noexcept {
+    if (!module_reader_) return false;
+    return module_reader_(name, out);
+}
+
+void Lua54Host::set_module_source_reader(core::LuaHost::ModuleSourceReader reader) {
+    module_reader_ = std::move(reader);
+    if (state_ != nullptr && module_reader_) {
+        register_function("require", [this](lua_State* L) -> int {
+            const char* requested = lua_tostring(L, 1);
+            if (requested == nullptr) {
+                lua_pushliteral(L, "module name required");
+                return lua_error(L);
+            }
+            std::string name(requested);
+            lua_getglobal(L, "package");
+            lua_getfield(L, -1, "loaded");
+            lua_getfield(L, -1, name.c_str());
+            if (!lua_isnil(L, -1)) return 1;
+            lua_pop(L, 3);
+            if (!read_module_source(name, module_buffer())) {
+                lua_pushfstring(L, "module '%s' not found in sandbox", name.c_str());
+                return lua_error(L);
+            }
+            const int load_status = luaL_loadbuffer(L, module_buffer().data(),
+                                                    module_buffer().size(),
+                                                    ("@module/" + name).c_str());
+            if (load_status != 0) return lua_error(L);
+            lua_pushstring(L, name.c_str());
+            if (lua_pcall(L, 1, 1, 0) != 0) return lua_error(L);
+            lua_getglobal(L, "package");
+            lua_getfield(L, -1, "loaded");
+            lua_pushvalue(L, -3);
+            lua_setfield(L, -2, name.c_str());
+            lua_pop(L, 2);
+            return 1;
+        });
     }
 }
 

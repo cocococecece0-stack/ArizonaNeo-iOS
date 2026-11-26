@@ -29,8 +29,6 @@ if(ARIZONA_NEO_WITH_LUAJIT)
     endif()
     set(LUAJIT_SOURCES
         src/runtime/lua_jit_host.cpp
-        src/runtime/portable_script_loader.cpp
-        src/runtime/portable_script_runtime.cpp
         src/runtime/neo_loader_api.cpp
         src/runtime/neo_loader_host.cpp
     )
@@ -59,6 +57,8 @@ add_library(arizona_neo_core STATIC
     src/game/game_bridge.cpp
     src/game/graphics_failure_adapter.cpp
     src/runtime/module_search_paths.cpp
+    src/runtime/portable_script_loader.cpp
+    src/runtime/portable_script_runtime.cpp
     src/core/script_manager.cpp
     ${LUAJIT_SOURCES}
     ${LUA54_SOURCES}
