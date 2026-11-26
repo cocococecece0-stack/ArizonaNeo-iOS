@@ -1,3 +1,12 @@
+if(ARIZONA_NEO_WITH_LUA54)
+    add_executable(lua54_host_test lua54_host_test.cpp)
+    target_link_libraries(lua54_host_test PRIVATE arizona_neo_core)
+    target_compile_features(lua54_host_test PRIVATE cxx_std_17)
+    target_compile_definitions(lua54_host_test PRIVATE ARIZONA_NEO_WITH_LUA54=1)
+    add_test(NAME lua54_host_test COMMAND lua54_host_test
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+endif()
+
 add_executable(user_documents_root_test user_documents_root_test.cpp)
 target_link_libraries(user_documents_root_test PRIVATE arizona_neo_core)
 target_compile_features(user_documents_root_test PRIVATE cxx_std_17)

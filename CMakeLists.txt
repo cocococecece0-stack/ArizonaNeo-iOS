@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ARIZONA_NEO_WITH_LUAJIT "Enable LuaJIT runtime integration" OFF)
+option(ARIZONA_NEO_WITH_LUA54 "Enable experimental Lua 5.4 backend" OFF)
 
 set(LUAJIT_SOURCES "")
 if(ARIZONA_NEO_WITH_LUAJIT)
@@ -35,6 +36,18 @@ if(ARIZONA_NEO_WITH_LUAJIT)
     )
 endif()
 
+
+set(LUA54_SOURCES "")
+if(ARIZONA_NEO_WITH_LUA54)
+    file(GLOB LUA54_CORE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lua-5.4.7/src/*.c")
+    list(REMOVE_ITEM LUA54_CORE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lua-5.4.7/src/lua.c")
+    list(REMOVE_ITEM LUA54_CORE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lua-5.4.7/src/luac.c")
+    set(LUA54_SOURCES
+        ${LUA54_CORE_SOURCES}
+        src/runtime/lua54_host.cpp
+    )
+endif()
+
 add_library(arizona_neo_core STATIC
     src/core/version.cpp
     src/core/lua_host.cpp
@@ -48,6 +61,7 @@ add_library(arizona_neo_core STATIC
     src/runtime/module_search_paths.cpp
     src/core/script_manager.cpp
     ${LUAJIT_SOURCES}
+    ${LUA54_SOURCES}
 )
 
 target_include_directories(arizona_neo_core PUBLIC include)
@@ -55,6 +69,10 @@ if(ARIZONA_NEO_WITH_LUAJIT)
     target_include_directories(arizona_neo_core PUBLIC ${LUAJIT_INCLUDE_DIR})
     target_link_libraries(arizona_neo_core PUBLIC ${LUAJIT_LIBRARY} m)
     target_compile_definitions(arizona_neo_core PUBLIC ARIZONA_NEO_WITH_LUAJIT=1)
+endif()
+if(ARIZONA_NEO_WITH_LUA54)
+    target_include_directories(arizona_neo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lua-5.4.7/src)
+    target_compile_definitions(arizona_neo_core PUBLIC ARIZONA_NEO_WITH_LUA54=1)
 endif()
 
 target_compile_features(arizona_neo_core PUBLIC cxx_std_17)
