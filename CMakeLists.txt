@@ -56,6 +56,7 @@ add_library(arizona_neo_core STATIC
     src/core/user_documents_root.cpp
     src/game/game_bridge.cpp
     src/game/graphics_failure_adapter.cpp
+    src/runtime/neo_loader_diagnostics.cpp
     src/runtime/module_search_paths.cpp
     src/runtime/portable_script_loader.cpp
     src/runtime/portable_script_runtime.cpp

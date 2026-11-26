@@ -1,3 +1,10 @@
+if(ARIZONA_NEO_WITH_LUAJIT)
+    add_executable(neo_loader_diagnostics_test neo_loader_diagnostics_test.cpp)
+    target_link_libraries(neo_loader_diagnostics_test PRIVATE arizona_neo_core)
+    target_compile_features(neo_loader_diagnostics_test PRIVATE cxx_std_17)
+    add_test(NAME neo_loader_diagnostics_test COMMAND neo_loader_diagnostics_test)
+endif()
+
 if(ARIZONA_NEO_WITH_LUA54)
     add_executable(lua54_host_test lua54_host_test.cpp)
     target_link_libraries(lua54_host_test PRIVATE arizona_neo_core)
