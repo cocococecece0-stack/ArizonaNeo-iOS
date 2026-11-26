@@ -36,7 +36,7 @@ public:
     // invalid state and internal C++ failures. `execute()` is a bool wrapper.
     LuaExecutionResult execute_detailed(
         std::string_view source,
-        std::string_view chunk_name);
+        std::string_view chunk_name) override;
 
     // The policy actually used when initialize() opened the Lua state.
     const LuaLibraryPolicy& library_policy() const noexcept { return policy_; }
@@ -44,20 +44,20 @@ public:
     // Register a C++ callable under a Lua global name (dots create nested
     // tables, e.g. "runtime.ping"). Duplicate names are rejected.
     // Functions registered before initialize() are installed at initialize().
-    bool register_function(const char* name, LuaBridgeFunction function);
+    bool register_function(const char* name, LuaBridgeFunction function) override;
 
     // Installs a sandboxed module source reader used by the `require` override.
     // The reader maps a module name to source bytes; it must return false when
     // the module is unavailable. Set before initialize() (or call again to
     // replace). No unrestricted file or package searcher is used.
     using ModuleSourceReader = std::function<bool(const std::string&, std::string&)>;
-    void set_module_source_reader(ModuleSourceReader reader) noexcept;
+    void set_module_source_reader(ModuleSourceReader reader) noexcept override;
     // Used by the sandboxed require closure (keeps buffers out of the C ABI frame).
     bool read_module_source(const std::string& name, std::string& out) const noexcept;
     std::string& module_buffer() noexcept { return module_scratch_; }
 
     // Human-readable error from the last failed operation.
-    const std::string& last_error() const noexcept;
+    const std::string& last_error() const noexcept override;
 
     // Whether initialize() succeeded and shutdown() has not been called.
     bool is_initialized() const noexcept;
@@ -67,10 +67,10 @@ public:
     lua_State* state() const noexcept { return state_; }
 
     // Helpers for tests (extension, not part of LuaHost).
-    double get_global_number(const char* name) const;
-    std::string get_global_string(const char* name) const;
+    double get_global_number(const char* name) const override;
+    std::string get_global_string(const char* name) const override;
     // Current Lua stack height (0 when no state). Used to verify stack hygiene.
-    int stack_top() const noexcept;
+    int stack_top() const noexcept override;
 
 private:
     void install_bridge();

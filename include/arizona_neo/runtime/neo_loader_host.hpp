@@ -8,7 +8,7 @@
 #include "arizona_neo/game/game_bridge.hpp"
 #include "arizona_neo/game/graphics_failure_adapter.hpp"
 #include "arizona_neo/game/ios_native_interface.hpp"
-#include "arizona_neo/runtime/lua_jit_host.hpp"
+#include "arizona_neo/core/lua_host.hpp"
 #include "arizona_neo/runtime/neo_loader_api.hpp"
 
 #include <memory>
@@ -38,7 +38,7 @@ public:
         game::IosGraphicsFailureInterface::SetHandlerFn graphics_failure_set_handler = nullptr;
     };
 
-    NeoLoaderHost(LuaJITHost& host,
+    NeoLoaderHost(core::LuaHost& host,
                   core::EventBus& bus,
                   core::Scheduler& scheduler,
                   core::ScriptManager& manager,
@@ -67,7 +67,7 @@ public:
     NeoLoaderAPI& api() noexcept { return api_; }
 
 private:
-    LuaJITHost& host_;
+    core::LuaHost& host_;
     core::EventBus& bus_;
     game::GameBridge bridge_;
     NeoLoaderAPI api_;

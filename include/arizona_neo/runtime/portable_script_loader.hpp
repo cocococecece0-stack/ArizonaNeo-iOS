@@ -3,7 +3,7 @@
 #include "arizona_neo/core/filesystem.hpp"
 #include "arizona_neo/core/result.hpp"
 #include "arizona_neo/core/script_manager.hpp"
-#include "arizona_neo/runtime/lua_jit_host.hpp"
+#include "arizona_neo/core/lua_host.hpp"
 
 #include <cstddef>
 #include <map>
@@ -19,7 +19,7 @@ public:
     // Scripts larger than 1 MiB are rejected before being handed to Lua.
     static constexpr std::size_t kMaxScriptBytes = 1024u * 1024u;
 
-    PortableScriptLoader(LuaJITHost& host, core::SandboxedFilesystem scripts);
+    PortableScriptLoader(core::LuaHost& host, core::SandboxedFilesystem scripts);
     PortableScriptLoader(const PortableScriptLoader&) = delete;
     PortableScriptLoader& operator=(const PortableScriptLoader&) = delete;
 
@@ -52,7 +52,7 @@ private:
         core::ScriptState state = core::ScriptState::Loaded;
     };
 
-    LuaJITHost& host_;
+    core::LuaHost& host_;
     core::SandboxedFilesystem scripts_;
     std::map<std::string, Entry> entries_;
     std::string last_error_;

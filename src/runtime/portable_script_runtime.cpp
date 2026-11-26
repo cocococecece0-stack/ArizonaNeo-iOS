@@ -1,5 +1,3 @@
-#if defined(ARIZONA_NEO_WITH_LUAJIT)
-
 #include "arizona_neo/runtime/portable_script_runtime.hpp"
 
 namespace arizona_neo::runtime {
@@ -29,5 +27,3 @@ std::string PortableScriptRuntime::last_error() const {
 }
 
 } // namespace arizona_neo::runtime
-
-#endif // ARIZONA_NEO_WITH_LUAJIT

@@ -5,7 +5,7 @@
 #include "arizona_neo/core/filesystem.hpp"
 #include "arizona_neo/core/script_manager.hpp"
 #include "arizona_neo/core/scheduler.hpp"
-#include "arizona_neo/runtime/lua_jit_host.hpp"
+#include "arizona_neo/core/lua_host.hpp"
 
 #include <cstdint>
 #include <string>
@@ -33,7 +33,7 @@ public:
         std::vector<std::string> properties;
     };
 
-    NeoLoaderAPI(LuaJITHost& host,
+    NeoLoaderAPI(core::LuaHost& host,
                  core::EventBus& bus,
                  core::Scheduler& scheduler,
                  core::SandboxedFilesystem& fs);
@@ -84,7 +84,7 @@ private:
     int l_game_lifecycle(lua_State* L);
 
 
-    LuaJITHost& host_;
+    core::LuaHost& host_;
     core::EventBus& bus_;
     core::Scheduler& scheduler_;
     core::SandboxedFilesystem& fs_;

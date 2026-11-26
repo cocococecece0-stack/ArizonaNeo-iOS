@@ -1,5 +1,9 @@
+#include "arizona_neo/core/filesystem.hpp"
 #include "arizona_neo/runtime/lua54_host.hpp"
+#include "arizona_neo/runtime/module_search_paths.hpp"
+#include "arizona_neo/runtime/portable_script_loader.hpp"
 
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -31,21 +35,34 @@ int main() {
           LuaExecutionStatus::Success, "runtime bridge works");
     CHECK(host.stack_top() == 0, "stack clean after ping");
 
-    // Execute an original NeoLoader module under Lua 5.4 by assigning its
-    // returned table to a global. sha256.lua is original code; only the
-    // assignment wrapper is test harness.
-    const std::string heap_source = read_file("scripts/neo/modules/binaryheap.lua");
-    CHECK(!heap_source.empty(), "original module source readable");
-    std::string wrapped = "binaryheap = (function()\n" + heap_source + "\nend)()\n" +
-                          "neo_heap_marker = (type(binaryheap.binaryHeap) == 'function') and 1 or 0\n";
-    const auto result = host.execute_detailed(wrapped, "binaryheap_under_lua54");
-    if (result.status != LuaExecutionStatus::Success) {
-        std::cerr << "LUA54 ERR: " << result.message << "\n";
-    }
-    CHECK(result.status == LuaExecutionStatus::Success, "original binaryheap.lua executes under Lua 5.4");
-    CHECK(host.get_global_number("neo_heap_marker") == 1.0,
-          "binaryheap module is usable under Lua 5.4");
-    CHECK(host.stack_top() == 0, "stack clean after Lua 5.4 module");
+    // PortableScriptLoader works with the generic LuaHost interface.
+    const auto lua54_root = std::filesystem::temp_directory_path() / "arizona_neo_lua54_runtime";
+    std::error_code cleanup_error;
+    std::filesystem::remove_all(lua54_root, cleanup_error);
+    std::filesystem::create_directories(lua54_root, cleanup_error);
+    arizona_neo::core::SandboxedFilesystem lua54_fs(lua54_root, true);
+    std::ifstream heap_file("scripts/neo/modules/binaryheap.lua", std::ios::binary);
+    std::string heap_source((std::istreambuf_iterator<char>(heap_file)),
+                            std::istreambuf_iterator<char>());
+    CHECK(lua54_fs.write_file("modules/binaryheap.lua", heap_source).ok, "write binaryheap module");
+    Lua54Host loader_host(policy);
+    loader_host.set_module_source_reader(
+        [&lua54_fs](const std::string& requested, std::string& out) -> bool {
+            for (const auto& candidate : arizona_neo::runtime::module_candidates(requested)) {
+                const auto read = lua54_fs.read_file(candidate);
+                if (!read.ok) continue;
+                out = std::move(read.value);
+                return true;
+            }
+            return false;
+        });
+    CHECK(loader_host.initialize(), "Lua 5.4 loader host initialize");
+    arizona_neo::runtime::PortableScriptLoader loader(loader_host, lua54_fs);
+    CHECK(loader.load("heap", "modules/binaryheap.lua").ok, "PortableScriptLoader loads under Lua 5.4");
+    CHECK(loader.execute("heap").ok, "PortableScriptLoader executes under Lua 5.4");
+    CHECK(loader_host.stack_top() == 0, "stack clean after PortableScriptLoader");
+    std::filesystem::remove_all(lua54_root, cleanup_error);
+
 
     host.shutdown();
     CHECK(!host.is_initialized(), "Lua 5.4 shutdown");
