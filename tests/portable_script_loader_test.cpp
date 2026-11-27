@@ -81,6 +81,17 @@ int main() {
     CHECK(!huge.ok && huge.error == CoreError::InvalidArgument, "oversized script rejected");
     CHECK(huge.message.find("maximum") != std::string::npos, "oversize message is explicit");
 
+    // 6b. The old 1 MiB cap rejected Market_Helper.lua (1,700,956 bytes) before
+    // dependency analysis even started. The bounded 4 MiB cap must accept a
+    // script of that size. Whitespace is valid Lua and keeps the test source
+    // generated rather than committed.
+    const std::string market_helper_sized(1700956, ' ');
+    CHECK(fs.write_file("market_helper_sized.lua", market_helper_sized).ok,
+          "write Market_Helper-sized script");
+    auto market_sized = loader.load("market_helper_sized", "market_helper_sized.lua");
+    CHECK(market_sized.ok, "script above the old 1 MiB cap loads");
+    CHECK(loader.state("market_helper_sized").ok, "Market_Helper-sized script has state");
+
     // 7 syntax error, 9 traceback preservation.
     auto syntax = loader.load("traceback_case", "syntax_placeholder.lua");
     CHECK(!syntax.ok, "syntax pre-step: missing placeholder fails");

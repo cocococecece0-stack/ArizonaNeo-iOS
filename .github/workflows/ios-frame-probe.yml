@@ -1,0 +1,194 @@
+name: iOS Frame Probe Dylib (unsigned, no IPA upload)
+
+# Builds the real arm64 iOS bootstrap dylib with the Stage 15.3.1 GLView.tick
+# probe. Manual dispatch only. It does not upload the original Arizona IPA or
+# an integrated IPA: this repository is public, so those payloads must stay
+# local and be integrated by the user. It never claims a device runtime result.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  LUAJIT_COMMIT: '96f7b297326e9fd454b7186c6858b2773f94a0dc'
+  LUAJIT_ARTIFACT_ID: '14855513382'
+  LUAJIT_ZIP_SHA: '58ff22c6ebe8019ff0f11679e81df93c4a1052605daefdb9fae935d5d724f595'
+  LUAJIT_LIB_SHA: '6b3c087831456891cf572f56aa9127b9539507b32c1552582eaf87c6deb31343'
+
+jobs:
+  build-frame-probe:
+    name: Build arm64 iOS bootstrap with GLView.tick probe
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Record Apple toolchain and verify iPhoneOS SDK
+        run: |
+          set -euo pipefail
+          mkdir -p ci
+          {
+            echo "uname -m: $(uname -m)"
+            sw_vers
+            echo "xcode-select: $(xcode-select -p)"
+            xcodebuild -version
+            echo "iphoneos SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+            echo "iphoneos SDK path: $(xcrun --sdk iphoneos --show-sdk-path)"
+            clang --version | head -1
+            cmake --version | head -1
+          } 2>&1 | tee ci/toolchain-report.txt
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          test -d "$SDK_PATH"
+          test -f "$SDK_PATH/usr/include/objc/runtime.h"
+          test -f "$SDK_PATH/System/Library/Frameworks/Foundation.framework/Headers/Foundation.h"
+          cat ci/toolchain-report.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download and verify pinned LuaJIT device library
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci/luajit
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${LUAJIT_ARTIFACT_ID}/zip" \
+            > ci/luajit/artifact.zip
+          echo "$(shasum -a 256 ci/luajit/artifact.zip | awk '{print $1}')  luajit zip" > ci/artifact-sha.txt
+          grep -q "^${LUAJIT_ZIP_SHA}  luajit zip$" ci/artifact-sha.txt
+          unzip -o -q ci/luajit/artifact.zip -d ci/luajit
+          test -f ci/luajit/libluajit.a
+          echo "$(shasum -a 256 ci/luajit/libluajit.a | awk '{print $1}')  libluajit.a" >> ci/artifact-sha.txt
+          grep -q "^${LUAJIT_LIB_SHA}  libluajit.a$" ci/artifact-sha.txt
+
+      - name: Prepare LuaJIT headers from pinned commit
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/LuaJIT/LuaJIT.git ci/luajit-src
+          git -C ci/luajit-src checkout --quiet "$LUAJIT_COMMIT"
+          ACTUAL="$(git -C ci/luajit-src rev-parse HEAD)"
+          [[ "$ACTUAL" == "$LUAJIT_COMMIT" ]] || { echo "ERROR: LuaJIT commit mismatch: $ACTUAL" >&2; exit 1; }
+          export MACOSX_DEPLOYMENT_TARGET=11.0
+          make -C ci/luajit-src/src -j2 luajit.h HOST_CC=clang
+          for h in lua.h luaconf.h lauxlib.h lualib.h luajit.h; do
+            test -f "ci/luajit-src/src/$h" || { echo "ERROR: missing header $h" >&2; exit 1; }
+          done
+          EXPECTED_SYM="$(awk '/^#define LUAJIT_VERSION_SYM/ {print $3}' ci/luajit-src/src/luajit.h)"
+          [[ -n "$EXPECTED_SYM" ]] || { echo "ERROR: LUAJIT_VERSION_SYM not found in generated luajit.h" >&2; exit 1; }
+          nm -g ci/luajit/libluajit.a > "$RUNNER_TEMP/luajit-symbols.txt"
+          grep -Fq "$EXPECTED_SYM" "$RUNNER_TEMP/luajit-symbols.txt"
+          echo "LUAJIT_INCLUDE_DIR=$GITHUB_WORKSPACE/ci/luajit-src/src" >> "$GITHUB_ENV"
+          echo "LUAJIT_LIB=$GITHUB_WORKSPACE/ci/luajit/libluajit.a" >> "$GITHUB_ENV"
+
+      - name: Configure and build bootstrap + frame probe (iOS arm64)
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          echo "$SOURCE_SHA" > ci/source-sha.txt
+          [[ "$SOURCE_SHA" == "$GITHUB_SHA" ]] || {
+            echo "ERROR: checkout SHA $SOURCE_SHA differs from GITHUB_SHA $GITHUB_SHA" >&2
+            exit 1
+          }
+
+          cmake -S . -B ci/build-ios \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DARIZONA_NEO_WITH_LUAJIT=ON \
+            -DLUAJIT_INCLUDE_DIR="$LUAJIT_INCLUDE_DIR" \
+            -DLUAJIT_LIBRARY="$LUAJIT_LIB" 2>&1 | tee ci/core-configure.log
+          cmake --build ci/build-ios --target neo_loader_bootstrap --parallel 2 \
+            2>&1 | tee ci/bootstrap-build.log
+
+          DYLIB="$GITHUB_WORKSPACE/ci/build-ios/libNeoLoaderBootstrap.dylib"
+          test -f "$DYLIB"
+          echo "BOOTSTRAP_DYLIB=$DYLIB" >> "$GITHUB_ENV"
+
+      - name: Verify dylib Mach-O, platform, dependencies and probe symbols
+        run: |
+          set -euo pipefail
+          DYLIB="$BOOTSTRAP_DYLIB"
+          file "$DYLIB" | tee ci/bootstrap-binary-info.txt
+          file "$DYLIB" | grep -q 'Mach-O 64-bit'
+          file "$DYLIB" | grep -q 'arm64'
+          lipo -info "$DYLIB" | tee -a ci/bootstrap-binary-info.txt
+          lipo -info "$DYLIB" | grep -q 'arm64'
+          otool -hv "$DYLIB" | tee -a ci/bootstrap-binary-info.txt | grep -q 'ARM64'
+          otool -l "$DYLIB" > ci/bootstrap-load-commands.txt
+          grep -A4 'cmd LC_BUILD_VERSION' ci/bootstrap-load-commands.txt > ci/bootstrap-build-version.txt
+          cat ci/bootstrap-build-version.txt
+          grep -q 'platform 2' ci/bootstrap-build-version.txt
+          grep -q 'minos 15.0' ci/bootstrap-build-version.txt
+          otool -D "$DYLIB" > ci/bootstrap-install-name.txt
+          grep -Fq '@rpath/libNeoLoaderBootstrap.dylib' ci/bootstrap-install-name.txt
+          otool -L "$DYLIB" > ci/bootstrap-dependencies.txt
+          ! grep -qi 'iossimulator\|simulator' ci/bootstrap-dependencies.txt
+          ! grep -qi 'android\|bionic\|jni' ci/bootstrap-dependencies.txt
+          grep -Eq '__mod_init_func|__init_offsets' ci/bootstrap-load-commands.txt
+
+          nm -g "$DYLIB" > ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_initialize' ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_shutdown' ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_get_status' ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_get_version' ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_attach_host' ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_get_marker_path' ci/bootstrap-symbols.txt
+          grep -Fq '_neo_bootstrap_write_marker' ci/bootstrap-symbols.txt
+
+          nm "$DYLIB" > ci/bootstrap-all-symbols.txt
+          strings "$DYLIB" > ci/bootstrap-strings.txt
+          grep -Fq 'FRAME_PROBE_START' ci/bootstrap-strings.txt
+          grep -Fq 'FRAME_PROBE_INSTALLED' ci/bootstrap-strings.txt
+          grep -Fq 'FRAME_PROBE_INSTALL_FAILED' ci/bootstrap-strings.txt
+          grep -Fq 'FRAME_TICK' ci/bootstrap-strings.txt
+
+          shasum -a 256 "$DYLIB" | tee ci/bootstrap-sha256.txt
+          echo "FRAME_PROBE_BUILD_VERIFIED"
+
+      - name: Create SHA256SUMS and build log bundle
+        run: |
+          set -euo pipefail
+          cd ci
+          shasum -a 256 \
+            build-ios/libNeoLoaderBootstrap.dylib \
+            toolchain-report.txt \
+            artifact-sha.txt \
+            source-sha.txt \
+            core-configure.log \
+            bootstrap-build.log \
+            bootstrap-binary-info.txt \
+            bootstrap-build-version.txt \
+            bootstrap-install-name.txt \
+            bootstrap-dependencies.txt \
+            bootstrap-symbols.txt \
+            bootstrap-all-symbols.txt \
+            bootstrap-strings.txt \
+            bootstrap-sha256.txt > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload dylib, logs and SHA256SUMS
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-frame-probe-dylib
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            ci/build-ios/libNeoLoaderBootstrap.dylib
+            ci/SHA256SUMS.txt
+            ci/toolchain-report.txt
+            ci/artifact-sha.txt
+            ci/source-sha.txt
+            ci/core-configure.log
+            ci/bootstrap-build.log
+            ci/bootstrap-binary-info.txt
+            ci/bootstrap-build-version.txt
+            ci/bootstrap-install-name.txt
+            ci/bootstrap-dependencies.txt
+            ci/bootstrap-symbols.txt
+            ci/bootstrap-all-symbols.txt
+            ci/bootstrap-strings.txt
+            ci/bootstrap-sha256.txt

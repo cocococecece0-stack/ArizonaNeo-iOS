@@ -1,0 +1,12 @@
+#pragma once
+
+namespace arizona_neo::runtime::portable_modules {
+
+// Generated from scripts/neo/modules/samp/events.lua at configure time.
+// NeoLoaderHost gives this portable registry priority over an archive-provided
+// RakNet-backed lib/samp/events.lua, which cannot work without native RakNet.
+inline constexpr const char* kSampEvents = R"NEOMOD(
+@ARIZONA_NEO_SAMP_EVENTS_SOURCE@
+)NEOMOD";
+
+} // namespace arizona_neo::runtime::portable_modules

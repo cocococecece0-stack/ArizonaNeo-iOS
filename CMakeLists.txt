@@ -8,6 +8,20 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(ARIZONA_NEO_WITH_LUAJIT "Enable LuaJIT runtime integration" OFF)
 option(ARIZONA_NEO_WITH_LUA54 "Enable experimental Lua 5.4 backend" OFF)
 
+# The portable samp.events registry must win over the archive's RakNet-backed
+# lib/samp/events.lua, which cannot run without native RakNet. Embedding it at
+# build time keeps NeoLoaderHost independent of the current working directory.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/scripts/neo/modules/samp/events.lua"
+     ARIZONA_NEO_SAMP_EVENTS_SOURCE)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_CURRENT_SOURCE_DIR}/scripts/neo/modules/samp/events.lua")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/portable_modules.hpp.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/portable_modules.hpp"
+    @ONLY
+)
+
 set(LUAJIT_SOURCES "")
 if(ARIZONA_NEO_WITH_LUAJIT)
     if(NOT LUAJIT_INCLUDE_DIR)
@@ -29,8 +43,6 @@ if(ARIZONA_NEO_WITH_LUAJIT)
     endif()
     set(LUAJIT_SOURCES
         src/runtime/lua_jit_host.cpp
-        src/runtime/neo_loader_api.cpp
-        src/runtime/neo_loader_host.cpp
     )
 endif()
 
@@ -43,6 +55,17 @@ if(ARIZONA_NEO_WITH_LUA54)
     set(LUA54_SOURCES
         ${LUA54_CORE_SOURCES}
         src/runtime/lua54_host.cpp
+    )
+endif()
+
+# Backend-neutral compatibility layer. It only uses the Lua C API surface
+# shared by LuaJIT and Lua 5.4; compile it whenever at least one backend is
+# enabled. LuaJIT-specific code stays in lua_jit_host.cpp.
+set(RUNTIME_COMPAT_SOURCES "")
+if(ARIZONA_NEO_WITH_LUAJIT OR ARIZONA_NEO_WITH_LUA54)
+    set(RUNTIME_COMPAT_SOURCES
+        src/runtime/neo_loader_api.cpp
+        src/runtime/neo_loader_host.cpp
     )
 endif()
 
@@ -61,11 +84,13 @@ add_library(arizona_neo_core STATIC
     src/runtime/portable_script_loader.cpp
     src/runtime/portable_script_runtime.cpp
     src/core/script_manager.cpp
+    ${RUNTIME_COMPAT_SOURCES}
     ${LUAJIT_SOURCES}
     ${LUA54_SOURCES}
 )
 
 target_include_directories(arizona_neo_core PUBLIC include)
+target_include_directories(arizona_neo_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 if(ARIZONA_NEO_WITH_LUAJIT)
     target_include_directories(arizona_neo_core PUBLIC ${LUAJIT_INCLUDE_DIR})
     target_link_libraries(arizona_neo_core PUBLIC ${LUAJIT_LIBRARY} m)
@@ -94,6 +119,14 @@ set_target_properties(neo_loader_bootstrap PROPERTIES
     VISIBILITY_INLINES_HIDDEN ON
 )
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR APPLE)
+    # Diagnostic CADisplayLink/GLView.tick probe. iOS-only; it never starts Lua
+    # or NeoLoaderHost and does not patch game code.
+    target_sources(neo_loader_bootstrap PRIVATE
+        ios/bootstrap/src/ios_frame_probe.mm
+    )
+    target_link_libraries(neo_loader_bootstrap PRIVATE
+        "-framework Foundation"
+    )
     # Keep the constructor from being dead-stripped by the Apple linker.
     target_link_options(neo_loader_bootstrap PRIVATE
         -Wl,-u,_neo_bootstrap_library_loaded)

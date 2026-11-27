@@ -65,6 +65,11 @@ target_link_libraries(event_bus_test PRIVATE arizona_neo_core)
 target_compile_features(event_bus_test PRIVATE cxx_std_17)
 add_test(NAME event_bus_test COMMAND event_bus_test)
 
+add_executable(frame_probe_state_test frame_probe_state_test.cpp)
+target_link_libraries(frame_probe_state_test PRIVATE arizona_neo_core)
+target_compile_features(frame_probe_state_test PRIVATE cxx_std_17)
+add_test(NAME frame_probe_state_test COMMAND frame_probe_state_test)
+
 add_executable(script_manager_test script_manager_test.cpp)
 target_link_libraries(script_manager_test PRIVATE arizona_neo_core)
 target_compile_features(script_manager_test PRIVATE cxx_std_17)
@@ -88,5 +93,11 @@ if(ARIZONA_NEO_WITH_LUAJIT)
     target_link_libraries(script_manager_integration_test PRIVATE arizona_neo_core)
     target_compile_features(script_manager_integration_test PRIVATE cxx_std_17)
     add_test(NAME script_manager_integration_test COMMAND script_manager_integration_test
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    add_executable(user_script_compat_test user_script_compat_test.cpp)
+    target_link_libraries(user_script_compat_test PRIVATE arizona_neo_core)
+    target_compile_features(user_script_compat_test PRIVATE cxx_std_17)
+    add_test(NAME user_script_compat_test COMMAND user_script_compat_test
              WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()

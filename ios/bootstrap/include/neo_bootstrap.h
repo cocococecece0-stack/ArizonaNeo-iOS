@@ -59,6 +59,10 @@ NEO_BOOTSTRAP_API int neo_bootstrap_attach_host(const neo_bootstrap_host_interfa
 NEO_BOOTSTRAP_API int neo_bootstrap_set_documents_root(const char* path);
 NEO_BOOTSTRAP_API int neo_bootstrap_get_marker_path(char* out_path, unsigned long long capacity);
 
+/* Appends one diagnostic marker event. Used by the frame probe for
+   installation/error evidence; never call this from a per-frame callback. */
+NEO_BOOTSTRAP_API void neo_bootstrap_write_marker(const char* event, const char* detail);
+
 #ifdef __cplusplus
 }
 #endif

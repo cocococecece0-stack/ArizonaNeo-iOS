@@ -1,9 +1,8 @@
-#if defined(ARIZONA_NEO_WITH_LUAJIT)
-
 #include "arizona_neo/runtime/neo_loader_host.hpp"
 
 #include "arizona_neo/game/graphics_failure_adapter.hpp"
 #include "arizona_neo/runtime/module_search_paths.hpp"
+#include "portable_modules.hpp"
 
 #include <utility>
 
@@ -65,6 +64,14 @@ void NeoLoaderHost::attach_documents(const core::UserDocumentsRoot& documents) n
     const auto& fs = documents.filesystem();
     host_.set_module_source_reader(
         [&fs](const std::string& module_name, std::string& out) -> bool {
+            // The archive's lib/samp/events.lua requires RakLua/RakNet. The
+            // portable registry is the only usable implementation on iOS
+            // until those native callbacks are confirmed, so it takes
+            // priority for both spellings used by real scripts.
+            if (module_name == "lib.samp.events" || module_name == "samp.events") {
+                out = portable_modules::kSampEvents;
+                return true;
+            }
             for (const auto& candidate : module_candidates(module_name)) {
                 const auto read = fs.read_file(candidate);
                 if (!read.ok) continue;
@@ -94,5 +101,3 @@ bool NeoLoaderHost::ready() const noexcept {
 }
 
 } // namespace arizona_neo::runtime
-
-#endif // ARIZONA_NEO_WITH_LUAJIT

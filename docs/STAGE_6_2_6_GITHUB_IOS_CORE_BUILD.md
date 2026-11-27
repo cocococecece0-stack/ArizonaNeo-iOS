@@ -74,3 +74,19 @@ iOS runtime **не тестировался**: нет ни устройства,
 - `bash -n scripts/validate_ios_luajit_core.sh`, `bash -n scripts/build_luajit_ios.sh` → OK.
 - Свежий CMake configure с LuaJIT ON (Linux, control check) → exit 0.
 - `gh workflow list` → новый workflow отсутствует на remote; `gh workflow run ios-luajit-core.yml` → HTTP 404 (ожидаемо).
+
+## 15. Фактические запуски workflow (2026-11-24) — ВСЕ ТРИ УПАЛИ
+
+| Run ID | URL | Failed step | Причина |
+|---|---|---|---|
+| 45344553388 | https://github.com/cocococecece0-stack/ArizonaNeo-iOS/actions/runs/45344553388 | Fetch LuaJIT headers | `ERROR: missing header luajit.h` — `luajit.h` генерируемый/gitignored, отсутствует в чистом checkout |
+| 45344876764 | https://github.com/cocococecece0-stack/ArizonaNeo-iOS/actions/runs/45344876764 | Fetch LuaJIT headers | `Makefile:322: *** missing: export MACOSX_DEPLOYMENT_TARGET=XX.YY. Stop.` |
+| 45345056547 | https://github.com/cocococecece0-stack/ArizonaNeo-iOS/actions/runs/45345056547 | Configure and build Core | CMake warning: `Manually-specified variables were not used: ARIZONA_NEO_WITH_LUAJIT, LUAJIT_INCLUDE_DIR, LUAJIT_LIBRARY`;Core собран **без LuaJIT**, `grep -q LuaJITHost` завершил шаг с exit 1 |
+
+Commits: `ed86651b1546e0864e3c43ef52f79b765336f41d` (workflow + docs), `a5eeb060097145f22e0e861b00a0f8f61cdb407b` (генерация `luajit.h`), `c63d400a23f0e26bde0c5ab3ecd7cd8c7c390c74` (`MACOSX_DEPLOYMENT_TARGET`). Все три отправлены в `origin main`, force push не применялся.
+
+В runs 2 и 3 шаг «Verify LuaJIT iOS artifact (fail closed)» прошёл: `Non-fat ... arm64`, `platform 2` (IOS), `minos 15.0`, `_luaL_newstate`/`_lua_pcall`/`_lua_close`/`_luaopen_ffi`/`_luaJIT_version_2_1_1795119671`, `ARTIFACT_OK: Mach-O arm64, platform IOS, minos 15.0, JIT off, FFI on`.
+
+**Root cause финального отказа**: в remote `main` отсутствуют изменения Stages 6.2–6.2.4 (`CMakeLists.txt` с опцией `ARIZONA_NEO_WITH_LUAJIT`, `src/runtime/lua_jit_host.cpp`, заголовок, `tests/lua_runtime_test.cpp`) — они остаются незакоммиченными локально по прямому запрету включать их в commit Stage 6.2.6. CI-checkout не видит LuaJITHost, поэтому статическая линковка с LuaJIT не выполнялась. Для успеха требуется отдельное разрешение на коммит кода интеграции предыдущих этапов.
+
+Log files: `/tmp/opencode/stage626-run45344553388.log`, `/tmp/opencode/stage626-run45344876764.log`, `/tmp/opencode/stage626-run45345056547.log`. Упавшие run'ы не загрузили artifacts (`no valid artifacts found to download`).

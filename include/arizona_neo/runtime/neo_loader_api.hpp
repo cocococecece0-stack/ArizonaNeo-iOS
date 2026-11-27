@@ -8,7 +8,9 @@
 #include "arizona_neo/core/lua_host.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 struct lua_State;
@@ -31,6 +33,7 @@ public:
         std::string description;
         std::int64_t version_number = 0;
         std::vector<std::string> properties;
+        std::string path;
     };
 
     NeoLoaderAPI(core::LuaHost& host,
@@ -45,6 +48,21 @@ public:
     bool install();
 
     const ScriptMeta& script_meta() const noexcept { return meta_; }
+
+    // Sets the source path reported by thisScript().path. The host owns path
+    // discovery; an unset path is reported as an empty string, never invented.
+    void set_script_path(std::string path) { meta_.path = std::move(path); }
+
+    // Optional lifecycle callback used by thisScript():reload(). Without it,
+    // reload returns false plus an explicit "unavailable" message; it is never
+    // reported as a successful reload.
+    void set_reload_handler(std::function<bool()> handler) {
+        reload_handler_ = std::move(handler);
+    }
+
+    // Starts the global main() function in a cooperative script thread.
+    // Returns false when main is absent or the thread runtime is unavailable.
+    bool run_main();
 
     // Optional non-owning ScriptManager binding used by the lifecycle queries.
     void set_script_manager(core::ScriptManager* manager) noexcept { manager_ = manager; }
@@ -64,6 +82,9 @@ private:
     int l_script_description(lua_State* L);
     int l_script_properties(lua_State* L);
     int l_neo_meta(lua_State* L);
+    int l_this_script(lua_State* L);
+    int l_script_reload(lua_State* L);
+    int l_run_main(lua_State* L);
     int l_event_subscribe(lua_State* L);
     int l_event_publish(lua_State* L);
     int l_event_count(lua_State* L);
@@ -75,6 +96,9 @@ private:
     int l_log(lua_State* L);
     int l_fs_list(lua_State* L);
     int l_fs_mkdir(lua_State* L);
+    int l_does_file_exist(lua_State* L);
+    int l_does_directory_exist(lua_State* L);
+    int l_create_directory(lua_State* L);
     int l_os_clock(lua_State* L);
     int l_os_time(lua_State* L);
     int l_script_state(lua_State* L);
@@ -91,7 +115,9 @@ private:
     core::SandboxedFilesystem& fs_;
     core::ScriptManager* manager_ = nullptr;
     game::GameBridge* bridge_ = nullptr;
+    std::function<bool()> reload_handler_;
     ScriptMeta meta_;
+    int this_script_ref_ = -2; // LUA_NOREF without requiring lauxlib in the header
     std::vector<int> refs_;
     std::vector<core::EventBus::SubscriptionToken> tokens_;
     std::vector<core::Scheduler::TaskId> tasks_;

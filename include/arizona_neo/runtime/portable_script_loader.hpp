@@ -16,8 +16,10 @@ namespace arizona_neo::runtime {
 // not provide script isolation and stores no Lua references after load.
 class PortableScriptLoader {
 public:
-    // Scripts larger than 1 MiB are rejected before being handed to Lua.
-    static constexpr std::size_t kMaxScriptBytes = 1024u * 1024u;
+    // Scripts larger than 4 MiB are rejected before being handed to Lua.
+    // The largest analysed real script (Market_Helper.lua) is about 1.7 MiB;
+    // the old 1 MiB limit rejected it for size alone. The limit stays bounded.
+    static constexpr std::size_t kMaxScriptBytes = 4u * 1024u * 1024u;
 
     PortableScriptLoader(core::LuaHost& host, core::SandboxedFilesystem scripts);
     PortableScriptLoader(const PortableScriptLoader&) = delete;

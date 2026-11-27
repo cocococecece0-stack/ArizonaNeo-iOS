@@ -252,6 +252,76 @@ int main() {
         CHECK(documents_host.get_global_number("user_result") == 16.0,
               "require resolved from lib/?.lua and lib/?/init.lua");
         CHECK(documents_host.stack_top() == 0, "stack clean after user script");
+
+        // Archive layout compatibility: the extracted payload contains a
+        // RakNet-backed lib/samp/events.lua that cannot load on iOS. The host
+        // must select the portable registry even when that archive file exists.
+        CHECK(documents.filesystem().write_file(
+            "lib/samp/events.lua",
+            "return { archive_marker = true }\n").ok,
+            "write archive samp.events sentinel");
+        auto read_source = [](const std::string& path) {
+            std::ifstream file(path, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(file)),
+                               std::istreambuf_iterator<char>());
+        };
+        const std::string moonloader_source =
+            read_source("scripts/neo/modules/moonloader.lua");
+        CHECK(!moonloader_source.empty(), "read moonloader module for archive layout");
+        CHECK(documents.filesystem().write_file("lib/moonloader.lua",
+                                                moonloader_source).ok,
+              "write archive moonloader layout");
+        const std::string arzmod_source =
+            read_source("tests/fixtures/stage15_2/arzmod.lua");
+        CHECK(!arzmod_source.empty(), "read real arzmod fixture for archive layout");
+        CHECK(documents.filesystem().write_file("scripts/arzmod.lua",
+                                                arzmod_source).ok,
+              "write real arzmod archive layout");
+        const std::string helper_source =
+            read_source("tests/fixtures/stage15_2/Helper_for_earning_money.lua");
+        CHECK(!helper_source.empty(), "read real Helper fixture for archive layout");
+        CHECK(documents.filesystem().write_file("scripts/Helper_for_earning_money.lua",
+                                                helper_source).ok,
+              "write real Helper archive layout");
+
+        CHECK(documents_host.execute_detailed(
+            "local e = require('lib.samp.events')\n"
+            "archive_events_override = (type(e) == 'table' and e.archive_marker == nil "
+            "and type(e.dispatch) == 'function') and 1 or 0\n"
+            "archive_events_alias = (e == require('samp.events')) and 1 or 0\n",
+            "verify_archive_events_override").status ==
+            arizona_neo::runtime::LuaExecutionStatus::Success,
+            "archive-layout samp.events override executes");
+        CHECK(documents_host.get_global_number("archive_events_override") == 1.0,
+              "portable samp.events wins over archive lib/samp/events.lua");
+        CHECK(documents_host.get_global_number("archive_events_alias") == 1.0,
+              "archive-layout samp.events alias is shared");
+
+        ScriptMetadata archive_arz;
+        archive_arz.id = "archive_arzmod";
+        archive_arz.path = "scripts/arzmod.lua";
+        CHECK(documents_manager.register_script(archive_arz).ok,
+              "register real arzmod in archive layout");
+        CHECK(documents_manager.load("archive_arzmod").ok,
+              "real arzmod loads with archive-layout dependencies");
+
+        ScriptMetadata archive_helper;
+        archive_helper.id = "archive_helper";
+        archive_helper.path = "scripts/Helper_for_earning_money.lua";
+        CHECK(documents_manager.register_script(archive_helper).ok,
+              "register real Helper in archive layout");
+        CHECK(documents_manager.load("archive_helper").ok,
+              "real Helper loads with archive-layout dependencies");
+        CHECK(documents_host.execute_detailed(
+            "archive_helper_surface = (type(main) == 'function' "
+            "and type(cmdZarabotok) == 'function' "
+            "and require('lib.samp.events').has_handler('onServerMessage')) and 1 or 0\n",
+            "verify_archive_helper").status ==
+            arizona_neo::runtime::LuaExecutionStatus::Success,
+            "archive-layout Helper surface executes");
+        CHECK(documents_host.get_global_number("archive_helper_surface") == 1.0,
+              "real Helper load-time surface is present in archive layout");
+        CHECK(documents_host.stack_top() == 0, "stack clean after archive-layout checks");
         std::filesystem::remove_all(documents_root, cleanup_error);
     }
 

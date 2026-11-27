@@ -1,123 +1,39 @@
-# Lua Runtime Research (Stage 6.0)
+# Lua Runtime Research (Stage 6.0 / 6.2)
 
 Дата: 2026-11-23.
 Репозиторий: `/root/ArizonaNeo-iOS`.
-Исследовательские материалы: `/root/ArizonaNeo-research` (NeoLoader 1.0.72 build 172).
-LuaJIT исходники: `/tmp/opencode/luajit` (не добавлены в Git).
+Исследовательские материалы: `/root/ArizonaNeo-research` (NeoLoader 1.0.72 build 172). LuaJIT исходники не хранятся в Git.
 
-## 1. Объём анализа
+## 1. Объём анализа (Stage 6.0, без изменений)
 
 - Изучено `.lua` файлов: **210** (включая корневые скрипты, `lib/`, подкаталоги).
 - Метод: статическое чтение (`cat`/`sed`/`grep`), без выполнения скриптов.
-- Различались вызовы, объявления и комментарии (комментарии вида `-- This file is part of SA MoonLoader package` не учитывались как использование `package`).
+- Подробный инвентарь API и таблицы см. в истории этого документа (Stage 6.0). Ключевые выводы: массовое использование `ffi`, `bit`, `jit.*`, `io`/`os`, `require`, Lua 5.1-совместимость (`setfenv` встречается).
 
-## 2. Инвентарь использования Lua API
+## 2. LuaJIT 2.1 (закреплено)
 
-Счётчики — количество вхождений (occ) и файлов (files), найденных grep по шаблону. Для `ffi.*` подтверждено чтением исходников.
+- Repository: `https://github.com/LuaJIT/LuaJIT`
+- Commit: `96f7b297326e9fd454b7186c6858b2773f94a0dc` (LuaJIT 2.1, Lua 5.1 API, MIT)
+- iOS ARM64 reference (Stage 6.1.3): GitHub Actions run `45253149431`, artifact `luajit-ios-arm64`, `libluajit.a` (~497K, Mach-O arm64). iOS runtime не тестировался, только compile/link в CI context.
 
-| API / механизм | occ | files | Роль | Поддержка на iOS | Замены |
-|---|---:|---:|---|---|---|
-| `require(...)` | 286 | 64 | Загрузка модулей | Да (собственный loader) | Реализовать module loader с sandbox paths |
-| `package.*` | 6 | 5 | `package.loaded` (bass.lua, copas.lua) | Да | Реализовать `package.loaded` |
-| `ffi` (любое) | 1244 | 118 | FFI-доступ | Частично (см. FFI) | Адаптация |
-| `ffi.cdef` | 108 | 104 | Объявления C-типов/функций | Да (interpreter FFI) | Проверка cdef |
-| `ffi.load` | 13 | 10 | Загрузка нативных библиотек | Ограниченно | Статическая линковка/bridge |
-| `ffi.C.*` | 511 | 6 | Вызов C-функций (ImGui, JNI, mprotect, BASS) | Зависит от символов | iOS bridge |
-| `ffi.cast` | 92 | 16 | Приведение типов/указателей | Да | — |
-| `ffi.new` | 75 | 12 | Создание cdata | Да | — |
-| `ffi.string` | 61 | 13 | Чтение C-строк | Да | — |
-| `ffi.copy` | 16 | 4 | Копирование памяти | Да | — |
-| `ffi.fill` | 9 | 2 | Заполнение памяти | Да | — |
-| `ffi.metatype` | 60 | 6 | Метатипы (ImVec2 и др.) | Да | — |
-| `ffi.gc` | 66 | 2 | GC-хуки для cdata | Да | — |
-| `ffi.typeof/sizeof/istype` | 85 | 21 | Интроспекция типов | Да | — |
-| `bit` | 208 | 22 | Битовые операции | Да (LuaJIT bit) | Lua 5.1: bit32 или реализация |
-| `jit` | 67 | 13 | `jit.os`, `jit.arch`, `jit.status` | Частично (JIT выключен) | Проверка `jit.status` |
-| `coroutine.*` | 31 | 8 | Корутины | Да | — |
-| `debug.*` | 12 | 4 | Отладка | Да | — |
-| `loadstring` | 6 | 4 | Загрузка кода из строки | Да | — |
-| `setfenv` | 2 | 1 | Окружения (Lua 5.1) | Да (LuaJIT 5.1 compat) | — |
-| `getfenv` | 0 | 0 | — | — | — |
-| `io.*` | 181 | 26 | Файловый I/O | Частично (sandbox) | SandboxedFilesystem |
-| `os.*` | 597 | 21 | Время, пути, окружение | Частично | iOS-адаптеры |
-| `package.loadlib` | 0 | 0 | — | — | — |
-| `package.path/cpath` | 0 | 0 | — | — | собственный loader |
-| `memory.*` | 56 | 3 | Чтение/запись памяти | Ограниченно | GameBridge |
-| `mprotect` | 3 | 1 | Защита страниц | Да (POSIX) | — |
-| `callback` (слово) | 159 | 16 | Коллбэки (в основном комментарии/имена) | Проверить | — |
-| `ffi.callback` | 0 | 0 | Нативные коллбэки через FFI | Да, но с ограничениями | — |
-| `cdata` | 55 | 3 | Упоминания | — | — |
-| `uintptr_t`/`void*` | 82 | 18 | Указатели | Да (cdata) | — |
-| `memory access` (offsets) | — | — | GTA SA offsets | Не подтверждено на iOS | GameBridge |
+## 3. Stage 6.2 — интеграция в Core
 
-Ключевые наблюдения:
-- Скрипты интенсивно используют FFI (`ffi.cdef`, `ffi.cast`, `ffi.new`, `ffi.string`, `ffi.metatype`, `ffi.gc`) — FFI обязателен.
-- `ffi.load` используется для `"GTASA"`, `"monetloader"`, MoonMonet `.so` и `NeoMLoader` (по строкам). На iOS эти библиотеки недоступны; требуется bridge/статическая линковка.
-- `ffi.callback` напрямую не используется.
-- `package.loadlib` не используется — загрузка `.so` через `ffi.load`/`package.loaded`.
-- `bit` используется (22 файла).
-- `jit.os`/`jit.arch` используются для условной логики.
-- `setfenv` используется (1 файл) — нужна Lua 5.1 совместимость.
-- Корутины (`coroutine.*`) используются (8 файлов).
-- `io`/`os` используются широко — нужны sandbox-адаптеры.
+- Реализация: `arizona_neo::runtime::LuaJITHost` (см. `include/arizona_neo/runtime/lua_jit_host.hpp`, `src/runtime/lua_jit_host.cpp`), реализует `arizona_neo::core::LuaHost`.
+- CMake: опция `ARIZONA_NEO_WITH_LUAJIT` (по умолчанию OFF). При включении требуются `LUAJIT_INCLUDE_DIR`/`LUAJIT_LIBRARY` (или `LUAJIT_ROOT`). Определяет `ARIZONA_NEO_WITH_LUAJIT=1`, линкует статическую библиотеку LuaJIT.
+- Жизненный цикл: `initialize()` создаёт `lua_State`, открывает минимальный набор библиотек (`_G`, `math`, `string`, `table`, `package`, `ffi`, `jit`), `shutdown()` закрывает состояние (RAII в деструкторе).
+- JIT: остаётся отключённым политикой сборки; тесты проверяют `jit.status()` при включённом рантайме.
+- FFI: включён в референсной iOS-сборке; на host-тестах проверяется базовое использование `ffi.new`/cdef. iOS device runtime FFI не проверялся.
+- Тесты: `tests/lua_runtime_test.cpp` (пропуск, если LuaJIT выключен).
 
-## 3. LuaJIT 2.1 исследование
+Детали: `docs/LUAJIT_RUNTIME_INTEGRATION.md`, `docs/LUAJIT_IOS_BUILD.md`.
 
-Источник: официальный репозиторий `https://github.com/LuaJIT/LuaJIT` (ветка v2.1, коммит 96f7b29).
+## 4. Ограничения (актуально)
 
-### 3.1. ARM64 support
-- LuaJIT поддерживает ARM64 (AARCH64) — `src/lj_arch.h` содержит `LJ_TARGET_ARM64`.
-- Сборка для arm64 подтверждена Makefile (`ifeq (arm64,$(TARGET_LJARCH))`).
+- Не использовать Linux/macOS/iOS архивы взаимозаменяемо.
+- Не хранить LuaJIT sources/binaries в Git.
+- На этом этапе не реализованы: require loader, package.path resolver, NeoLoader/moonloader API, Android JNI/Bionic, GTASA bindings, GameBridge, Script Manager UI.
+- `ffi.load` произвольных библиотек и расширенный sandbox — отдельные этапы; текущее открытие `package`/`ffi`/`jit` задокументировано как development-oriented минимальный набор для Stage 6.2.
 
-### 3.2. iOS target
-- `LJ_TARGET_IOS` определяется при `TARGET_OS_IPHONE` или `LUAJIT_TARGET_IPHONE`.
-- На iOS JIT отключается по умолчанию: `LJ_OS_NOJIT = 1` (если не определён `LUAJIT_ENABLE_JIT`).
-- FFI не отключается на iOS: `LJ_ARCH_NOFFI` определён только для PPC/console; для ARM64 iOS FFI остаётся включённым.
-
-### 3.3. Interpreter-only build
-- Макросы:
-  - `LJ_HASJIT = 0` если `LUAJIT_DISABLE_JIT` или `LJ_ARCH_NOJIT` или `LJ_OS_NOJIT`.
-  - `LJ_HASFFI = 0` если `LUAJIT_DISABLE_FFI` или `LJ_ARCH_NOFFI`.
-- На iOS: JIT выключен, FFI включён (по умолчанию). **FFI сохраняется при выключенном JIT** — подтверждено макросами и тестом.
-
-### 3.4. FFI с выключенным JIT
-- Проверено на Linux-сборке с `XCFLAGS="-DLUAJIT_DISABLE_JIT"`:
-  - `jit.status()` → "no jit".
-  - `require("ffi")` работает.
-  - FFI-тест (структура, поля, вызов `puts`) проходит.
-- Вывод: FFI доступен в interpreter-only режиме.
-
-### 3.5. bit / jit namespace / Lua 5.1
-- `lib_bit.c` присутствует — `bit` доступен.
-- `jit` namespace присутствует (`lib_jit.c`) — `jit.status`, `jit.os`, `jit.arch`.
-- LuaJIT совместим с Lua 5.1 API (включая `setfenv`/`getfenv`).
-- C API для встраивания: `lua.h`, `lauxlib.h`, `lualib.h` (совместимы с 5.1).
-
-### 3.6. Статическая библиотека
-- `make` собирает `libluajit.a` (static) и `libluajit.so` (dynamic).
-- Для iOS используется `BUILDMODE=static` (по умолчанию для iOS в Makefile).
-
-### 3.7. Требования к toolchain
-- Для iOS: clang с `-arch arm64`, sysroot `iphoneos`, `TARGET_SYS=iOS`, `TARGET_LJARCH=arm64`.
-- Host build требует gcc/clang.
-
-## 4. Ограничения iOS
-
-- Динамическая загрузка `.so`/`.dylib` ограничена code signing/sandbox; `ffi.load` на произвольные библиотеки не гарантирован.
-- Статическая линковка — рекомендуемый путь.
-- Символы должны быть доступны через статическую линковку или bridge.
-- JIT запрещён на iOS (без `LUAJIT_ENABLE_JIT` и специальных прав).
-- FFI-вызовы к системным C-функциям возможны (статически/системно доступные).
-- Objective-C и системные API вызываются через C-bridge (не из Lua напрямую).
-- Android ELF не может быть загружен на iOS.
-
-## 5. Сравнение Lua 5.1 vs LuaJIT
-
-| Критерий | Lua 5.1 | LuaJIT 2.1 (interpreter-only) | LuaJIT 2.1 (JIT, Android) |
-|---|---|---|---|
-| Совместимость с NeoMLoader | Высокая (5.1 API) | Высокая (5.1 compat) | Высокая |
-| FFI | Нет (нужна отдельная libffi) | Да (встроенный) | Да |
-| bit | Нет (нужен bitlib) | Да | Да |
 | Производительность | Низкая | Средняя | Высокая |
 | Размер | Малый | Средний | Средний |
 | ARM64 | Да | Да | Да |
@@ -228,3 +144,11 @@ print("FFI OK")
 Linux-проверка FFI пройдена. iOS runtime FFI не проверялся.
 
 `docs/PORTING_PLAN.md` обновлён: Stage 6.0 — исследование Lua Runtime (LuaJIT 2.1 feasibility), следующий этап — интеграция (Stage 7).
+
+## 14. Stage 6.2.4 — фактическая валидация runtime (Linux AArch64 host)
+
+- Пinned commit `96f7b297326e9fd454b7186c6858b2773f94a0dc`; JIT отключён и FFI включён подтверждены поведенчески (`jit.status() == false`, `select('#', ...) == 1`; `require('ffi')` + struct-поля) и байт-идентичной пересборкой с `XCFLAGS="-DLUAJIT_DISABLE_JIT"` (sha256 `963c7ea3…`). Воспроизводимая команда: `scripts/build_luajit_linux_host.sh`.
+- Ранее сделанный в Stage 6.2.3 вывод «JIT включён» (по закомментированному define в Makefile) признан ошибочным и исправлен в `docs/STAGE_6_2_3_LINKER_DIAGNOSIS.md`.
+- Интегрированный `LuaJITHost` проверен в Debug и Release: сборки OK, ctest 6/6 в обеих конфигурациях; JS-выполнение, globals, ошибки, lifecycle, JIT/FFI-сценарии проходят; реальная очистка Lua-стека проверена через `stack_top()`.
+- Без LuaJIT (`ARIZONA_NEO_WITH_LUAJIT=OFF`) Debug и Release собираются, 6/6 тестов проходят (`lua_runtime_test` SKIPPED).
+- Ограничения: ASan/LSan не запускаются в PRoot из-за VA-лимита shadow memory (`heap size 40000002000 exceeds max user virtual address`); iOS ARM64 runtime и `ffi.load` на устройстве не проверялись. Подробности: `docs/STAGE_6_2_4_RUNTIME_VALIDATION.md`.

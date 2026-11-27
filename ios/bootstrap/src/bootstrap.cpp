@@ -22,6 +22,7 @@
 
 #if defined(__APPLE__)
 #include <os/log.h>
+#include "neo_frame_probe.h"
 #endif
 
 namespace {
@@ -65,6 +66,12 @@ void neo_bootstrap_library_loaded() {
     g_library_loaded.store(true);
     write_diagnostic("DYLIB_LOADED", "constructor");
     diagnostic_log("DYLIB_LOADED");
+#if defined(__APPLE__)
+    // The probe only discovers GLView.tick and installs a no-op-preserving
+    // swizzle. It does not initialize Lua or NeoLoaderHost. Scheduling on the
+    // main queue avoids dyld/static-initialization ordering issues.
+    neo_ios_frame_probe_schedule_start();
+#endif
 }
 
 // Apple's linker can dead-strip a plain constructor from a dylib. Forcing a
@@ -334,6 +341,12 @@ NEO_BOOTSTRAP_API int neo_bootstrap_attach_host(const neo_bootstrap_host_interfa
     bootstrap.error = "bootstrap built without LuaJIT runtime";
     return NEO_BOOTSTRAP_INVALID_STATE;
 #endif
+}
+
+NEO_BOOTSTRAP_API void neo_bootstrap_write_marker(const char* event, const char* detail) {
+    const char* name = event != nullptr ? event : "UNKNOWN";
+    write_diagnostic(name, detail != nullptr ? detail : "none");
+    diagnostic_log(name);
 }
 
 } // extern "C"
